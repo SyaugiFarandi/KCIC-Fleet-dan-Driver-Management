@@ -81,8 +81,8 @@ export default function Dashboard() {
   return (
     <>
       <PageHeader
-        eyebrow="FLEET OPERATIONS CENTER"
-        title="Dashboard Overview"
+        eyebrow="Pusat operasi armada"
+        title="Ringkasan operasional"
         subtitle={
           data?.scope === 'OPERATIONS'
             ? 'Ringkasan operasional armada, driver, booking, dan perjalanan dari database.'

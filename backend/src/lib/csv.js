@@ -1,6 +1,8 @@
 function escapeCell(value) {
   const text = value == null ? '' : String(value);
-  return /[",\n;]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+  // Spreadsheet apps execute cells starting with these characters; force them to text.
+  const guarded = /^[=+@\t\r]/.test(text) || (/^-/.test(text) && !/^-?\d+(?:[.,]\d+)?$/.test(text)) ? `'${text}` : text;
+  return /[",\n;]/.test(guarded) ? `"${guarded.replaceAll('"', '""')}"` : guarded;
 }
 
 export function toCsv(columns, rows) {

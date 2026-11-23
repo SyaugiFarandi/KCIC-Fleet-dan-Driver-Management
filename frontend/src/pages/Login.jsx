@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowRight, CalendarCheck, ShieldCheck, Truck, Users } from 'lucide-react';
+import { ArrowRight, CalendarCheck, Eye, EyeOff, ShieldCheck, Truck, Users } from 'lucide-react';
 import { useAuth } from '../auth.jsx';
 import { ErrorBanner, Spinner } from '../ui.jsx';
 
@@ -18,6 +18,7 @@ export default function Login() {
   const [form, setForm] = useState({ email: '', password: '' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  const [showPassword, setShowPassword] = useState(false);
 
   const submit = async (event) => {
     event.preventDefault();
@@ -35,6 +36,7 @@ export default function Login() {
 
   const fill = (email) => {
     setForm({ email, password: 'Demo123!' });
+    setShowPassword(false);
     setError(null);
   };
 
@@ -46,10 +48,10 @@ export default function Login() {
             <div className="brand-mark brand-mark-lg">W</div>
             <div className="brand-text">
               <b>WHOOSH</b>
-              <small>FLEET MANAGEMENT</small>
+              <small>Fleet management</small>
             </div>
           </div>
-          <p className="eyebrow">KCIC · FLEET OPERATIONS DEMO</p>
+          <p className="eyebrow">Demo operasi armada KCIC</p>
           <h1>
             Fleet &amp; Driver
             <br />
@@ -79,7 +81,7 @@ export default function Login() {
 
       <section className="login-panel">
         <div className="login-card">
-          <p className="eyebrow">MASUK KE WORKSPACE</p>
+          <p className="eyebrow">Masuk ke workspace</p>
           <h2>Selamat datang kembali</h2>
           <p className="muted">Gunakan akun demo di bawah atau masukkan kredensial Anda.</p>
 
@@ -90,6 +92,7 @@ export default function Login() {
               <span>Email</span>
               <input
                 required
+                autoFocus
                 type="email"
                 autoComplete="username"
                 placeholder="admin@demo.local"
@@ -97,25 +100,37 @@ export default function Login() {
                 onChange={(event) => setForm({ ...form, email: event.target.value })}
               />
             </label>
-            <label className="field">
-              <span>Password</span>
-              <input
-                required
-                type="password"
-                autoComplete="current-password"
-                placeholder="Demo123!"
-                value={form.password}
-                onChange={(event) => setForm({ ...form, password: event.target.value })}
-              />
-            </label>
+            <div className="field">
+              <label className="field-label" htmlFor="login-password">Kata sandi</label>
+              <span className="password-wrap">
+                <input
+                  id="login-password"
+                  required
+                  type={showPassword ? 'text' : 'password'}
+                  autoComplete="current-password"
+                  placeholder="Demo123!"
+                  value={form.password}
+                  onChange={(event) => setForm({ ...form, password: event.target.value })}
+                />
+                <button
+                  type="button"
+                  className="password-toggle"
+                  onClick={() => setShowPassword((value) => !value)}
+                  aria-label={showPassword ? 'Sembunyikan kata sandi' : 'Tampilkan kata sandi'}
+                  aria-pressed={showPassword}
+                >
+                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </span>
+            </div>
             <button type="submit" className="btn btn-primary btn-block" disabled={busy}>
               {busy ? <Spinner size={16} /> : <ArrowRight size={16} />}
-              {busy ? 'Memproses...' : 'Masuk ke Dashboard'}
+              {busy ? 'Memproses...' : 'Masuk ke dashboard'}
             </button>
           </form>
 
           <div className="demo-accounts">
-            <p className="demo-accounts-title">Akun demo (password: Demo123!)</p>
+            <p className="demo-accounts-title">Akun demo (kata sandi: Demo123!)</p>
             <div className="demo-account-grid">
               {DEMO_ACCOUNTS.map((account) => (
                 <button type="button" key={account.email} className="demo-account" onClick={() => fill(account.email)}>

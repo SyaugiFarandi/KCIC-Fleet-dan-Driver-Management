@@ -94,7 +94,7 @@ constraints; **NOT IMPLEMENTED** = not built.
 | Docker Compose (db + api + web) | PASS | ports configurable; api runs generate → migrate → seed → server; healthchecks |
 | Real GPS hardware/provider integration | NOT IMPLEMENTED | Explicitly out of scope; simulator is isolated behind `backend/src/lib/gps.js` for future swap |
 | SSO, email/SMS/Telegram notifications | NOT IMPLEMENTED | Out of scope for this demo |
-| Production hardening (TLS, secrets management, public deployment) | NOT IMPLEMENTED | Demo credentials and local secret only |
+| Production hardening (TLS, secrets management, public deployment) | PARTIAL | Security headers, CSP, CORS allowlist, CSV injection guard and non-root API image added; still no TLS/secrets manager (local demo) |
 | Calendar-wide dispatch optimization / concurrency locking | PARTIAL | Basic overlap/availability validation only |
 | Real KCIC data / official records | NOT APPLICABLE | All data synthetic; UI labels DEMO everywhere |
 
@@ -108,6 +108,51 @@ constraints; **NOT IMPLEMENTED** = not built.
 | Vehicle detail matches database | Verified against API/DB rows |
 | Simulated coordinates update periodically | Verified (speeds/positions changed between 8 s polls; simulator every 15 s) |
 | No claim of real live GPS | DEMO banner, API `disclaimer`, `source: DEMO_SIMULATOR` |
+
+## UI/UX polish & security audit (2026-11-23)
+
+Design pass applied on the existing custom CSS system (no framework swap) through a single
+last-loaded layer, `frontend/src/polish.css`, so the brand palette (#831d27) and page
+markup stay untouched.
+
+### UI/UX changes
+
+- Sentence-case labels everywhere; removed tracked caps from eyebrows, table heads, nav
+  captions, crumbs and badges (letter-spacing + uppercase removed).
+- Visible `:focus-visible` ring on every interactive element (links, buttons, inputs,
+  table scroll regions, sidebar items), plus an inline brand focus style for fields.
+- Skip link ("Lewati ke konten utama") as the first tab stop; `<main>` is focusable.
+- Modal: focus trap, initial focus, Escape to close, focus restore, body scroll lock,
+  `aria-labelledby`, labelled close button.
+- Mobile sidebar: backdrop is a real button, `aria-expanded`/`aria-controls`, Escape closes.
+- Login: show/hide password toggle (`aria-pressed`, labelled), demo-account fillers reset it.
+- Tables: sticky action column on desktop only (≥981 px); below that the table scrolls
+  horizontally inside `.table-wrap` (page never scrolls sideways). Long cell text wraps at
+  desktop; plates stay on one line on mobile. Row height compacted for 1440×900 fit
+  (bookings measured 1090 px wide = 1090 px wrapper).
+- Touch targets ≥44 px at ≤720 px; report KPI grid 3/2/1 columns by breakpoint; KPI values
+  use tabular numerals and aligned tops.
+- `prefers-reduced-motion` fallback for all animation/transition, `overflow-x: clip` on
+  html/body, password field restructured outside `<label>` for valid interactive nesting.
+
+### Security changes
+
+| Item | Fix | Verification |
+| --- | --- | --- |
+| Missing browser hardening headers | nginx sends CSP, `X-Content-Type-Options`, `X-Frame-Options: DENY`, Referrer-Policy, Permissions-Policy, COOP/CORP; Express sends the same for dev/manual runs | `nginx:alpine nginx -t` → OK; headers confirmed via `curl -I` |
+| XSS via injected scripts | CSP `script-src 'self'`; `connect-src 'self'`; `object-src 'none'`; `frame-ancestors 'none'`; Google Fonts and OSM tiles explicitly allowed | Headless Chrome loaded dashboard + GPS under nginx+CSP → **0 CSP violations** |
+| Open CORS in dev/manual mode | `CORS_ORIGIN` now defaults to localhost allowlist (5180/5181/8090, 127.0.0.1 variants) instead of a permissive value | `backend/src/config.js` |
+| CSV formula injection (opened in Excel) | Values starting with `= + @` (or `-` that is not a number) and tab/CR are prefixed with `'` before quoting | `backend/src/lib/csv.js`; export still valid CSV |
+| Container runs as root | API image creates/chowns `/app` and runs `USER node` | Dockerfile reviewed; generate/migrate/seed still start at compose boot |
+| Unvalidated asset caching | Hashed assets cached 1 year immutable; `index.html` no-store | `frontend/nginx.conf` |
+
+### Residual risks (documented, accepted for a local demo)
+
+- JWT is stored in `localStorage`, so any XSS would expose it; the new CSP removes the main
+  injection vector, but a production build should move to httpOnly cookies.
+- Login rate limiting is in-process memory (per IP+email), not shared across instances.
+- No HSTS because local HTTP is used; enable behind TLS.
+- Demo passwords (`Demo123!`) and the seeded JWT secret are not production credentials.
 
 ## Enhancement acceptance criteria check
 

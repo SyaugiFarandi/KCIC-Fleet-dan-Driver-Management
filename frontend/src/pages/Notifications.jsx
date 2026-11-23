@@ -100,7 +100,7 @@ export default function Notifications() {
   return (
     <>
       <PageHeader
-        eyebrow="INBOX"
+        eyebrow="Kotak masuk"
         title="Pusat Notifikasi"
         subtitle="Keputusan booking, penugasan perjalanan, peringatan GPS, masa berlaku dokumen, dan maintenance mendatang."
         actions={

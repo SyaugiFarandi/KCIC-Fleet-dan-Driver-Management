@@ -40,7 +40,7 @@ export default function Profile() {
 
   return (
     <>
-      <PageHeader eyebrow="ACCOUNT" title="Profil Saya" subtitle="Informasi akun dan pengaturan keamanan." />
+      <PageHeader eyebrow="Akun" title="Profil Saya" subtitle="Informasi akun dan pengaturan keamanan." />
 
       <div className="profile-grid">
         <section className="panel">

@@ -115,7 +115,7 @@ export default function Reports() {
   return (
     <>
       <PageHeader
-        eyebrow="FLEET ANALYTICS"
+        eyebrow="Analitik armada"
         title="Laporan & Ekspor"
         subtitle="Ringkasan pemanfaatan armada, biaya maintenance, rekap booking per departemen, dan ekspor CSV."
         actions={
@@ -170,7 +170,7 @@ export default function Reports() {
             Periode laporan: <b>{fmtDate(data.range.from)}</b> — <b>{fmtDate(data.range.to)}</b> · Data dummy demo (bukan data resmi KCIC).
           </p>
 
-          <div className="stats-grid">
+          <div className="stats-grid report-kpis">
             <StatCard label="Total Booking" value={data.totals.bookings} hint={`${data.totals.passengers} penumpang`} icon={CalendarCheck} />
             <StatCard label="Trip Selesai" value={data.totals.completedTrips} hint={`${data.totals.activeTrips} trip aktif`} icon={RouteIcon} />
             <StatCard label="Tingkat Persetujuan" value={data.totals.approvalRate === null ? '—' : `${data.totals.approvalRate}%`} hint="Dari booking yang diputuskan" icon={Users} />

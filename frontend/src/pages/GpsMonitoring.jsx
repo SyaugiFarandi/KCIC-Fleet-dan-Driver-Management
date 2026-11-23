@@ -495,7 +495,7 @@ export default function GpsMonitoring() {
   return (
     <>
       <PageHeader
-        eyebrow="LIVE FLEET MAP"
+        eyebrow="Peta armada langsung"
         title="GPS Fleet Monitoring"
         subtitle="Pantau posisi armada, riwayat perjalanan, geofence, dan event GPS dalam satu peta."
         actions={
@@ -519,7 +519,7 @@ export default function GpsMonitoring() {
       <div className="gps-demo-banner" role="note">
         <AlertTriangle size={17} />
         <div>
-          <b>DEMO GPS</b> — Koordinat dihasilkan simulator lokal dan diperbarui berkala (±15 detik).
+          <b>Simulator GPS demo</b> — Koordinat dihasilkan simulator lokal dan diperbarui berkala (±15 detik).
           Data ini bukan pelacakan GPS aktual dan tidak boleh dianggap sebagai lokasi resmi kendaraan.
         </div>
       </div>
@@ -717,7 +717,7 @@ export default function GpsMonitoring() {
         <section className="panel gps-detail-card">
           <div className="gps-detail-head">
             <div>
-              <p className="eyebrow">VEHICLE DETAIL PANEL</p>
+              <p className="eyebrow">Detail kendaraan</p>
               <h2>{detail?.vehicle?.plateNumber || selected?.plateNumber || 'Memuat...'}</h2>
               <p className="muted">
                 {detail?.vehicle

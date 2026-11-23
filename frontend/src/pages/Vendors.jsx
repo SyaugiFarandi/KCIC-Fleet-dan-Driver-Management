@@ -173,7 +173,7 @@ export default function Vendors() {
   return (
     <>
       <PageHeader
-        eyebrow="VENDOR PARTNERS"
+        eyebrow="Mitra vendor"
         title="Manajemen Vendor"
         subtitle="Kelola mitra penyedia kendaraan dan driver beserta data kontaknya."
         actions={

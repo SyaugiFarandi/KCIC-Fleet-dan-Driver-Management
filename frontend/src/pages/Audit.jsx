@@ -64,7 +64,7 @@ export default function Audit() {
   return (
     <>
       <PageHeader
-        eyebrow="SECURITY & TRACEABILITY"
+        eyebrow="Keamanan & jejak audit"
         title="Audit Aktivitas"
         subtitle={`Jejak perubahan data dan aktivitas login. Menampilkan ${items.length} dari ${total} catatan terbaru.`}
         actions={

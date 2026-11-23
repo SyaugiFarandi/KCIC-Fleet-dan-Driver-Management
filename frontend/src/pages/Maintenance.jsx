@@ -251,7 +251,7 @@ export default function Maintenance() {
   return (
     <>
       <PageHeader
-        eyebrow="VEHICLE CARE"
+        eyebrow="Perawatan kendaraan"
         title="Perawatan Kendaraan"
         subtitle="Jadwalkan, jalankan, dan selesaikan maintenance armada. Kendaraan dalam perawatan tidak dapat ditugaskan."
         actions={

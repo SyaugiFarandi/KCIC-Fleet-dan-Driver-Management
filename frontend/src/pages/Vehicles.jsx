@@ -265,7 +265,7 @@ export default function Vehicles() {
   return (
     <>
       <PageHeader
-        eyebrow="FLEET MASTER DATA"
+        eyebrow="Data induk armada"
         title="Manajemen Kendaraan"
         subtitle="Kelola armada KCIC dan vendor beserta status operasionalnya."
         actions={

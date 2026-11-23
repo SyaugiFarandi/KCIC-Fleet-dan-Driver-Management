@@ -105,6 +105,15 @@ function AppShell() {
     window.scrollTo({ top: 0 });
   }, [location.pathname]);
 
+  useEffect(() => {
+    if (!sidebarOpen) return undefined;
+    const onKey = (event) => {
+      if (event.key === 'Escape') setSidebarOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [sidebarOpen]);
+
   const activeItem = useMemo(() => {
     const items = NAV_SECTIONS.flatMap((section) => section.items);
     return (
@@ -128,20 +137,25 @@ function AppShell() {
 
   return (
     <div className="app-shell">
-      {sidebarOpen && <div className="sidebar-backdrop" onClick={() => setSidebarOpen(false)} />}
-      <aside className={`sidebar ${sidebarOpen ? 'sidebar-open' : ''}`}>
+      <a className="skip-link" href="#main-content">
+        Lewati ke konten utama
+      </a>
+      {sidebarOpen && (
+        <button type="button" className="sidebar-backdrop" aria-label="Tutup menu" onClick={() => setSidebarOpen(false)} />
+      )}
+      <aside id="app-sidebar" className={`sidebar ${sidebarOpen ? 'sidebar-open' : ''}`}>
         <div className="brand">
           <div className="brand-mark">W</div>
           <div className="brand-text">
             <b>WHOOSH</b>
-            <small>FLEET MANAGEMENT</small>
+            <small>Fleet management</small>
           </div>
           <button type="button" className="sidebar-close" onClick={() => setSidebarOpen(false)} aria-label="Tutup menu">
             <X size={18} />
           </button>
         </div>
 
-        <div className="sidebar-nav">
+        <nav className="sidebar-nav" aria-label="Navigasi utama">
           {sections.map((section) => (
             <div className="nav-section" key={section.label}>
               <p className="nav-caption">{section.label}</p>
@@ -158,17 +172,17 @@ function AppShell() {
               ))}
             </div>
           ))}
-        </div>
+        </nav>
 
         <div className="sidebar-footer">
-          <div className="demo-tag">DEMO ENVIRONMENT · DATA DUMMY</div>
+          <div className="demo-tag">Lingkungan demo, data dummy</div>
           <div className="sidebar-user">
             <div className="avatar">{user.name?.[0]?.toUpperCase() || 'U'}</div>
             <div className="sidebar-user-text">
               <b>{user.name}</b>
               <small>{roleLabel(user.role)}</small>
             </div>
-            <button type="button" title="Keluar" onClick={handleLogout}>
+            <button type="button" title="Keluar" aria-label="Keluar dari akun" onClick={handleLogout}>
               <LogOut size={17} />
             </button>
           </div>
@@ -178,18 +192,25 @@ function AppShell() {
       <div className="main">
         <header className="topbar">
           <div className="topbar-left">
-            <button type="button" className="icon-btn mobile-menu" onClick={() => setSidebarOpen(true)} aria-label="Buka menu">
+            <button
+              type="button"
+              className="icon-btn mobile-menu"
+              onClick={() => setSidebarOpen(true)}
+              aria-label="Buka menu"
+              aria-expanded={sidebarOpen}
+              aria-controls="app-sidebar"
+            >
               <Menu size={20} />
             </button>
             <div className="crumb">
-              <span>FLEET OPS</span>
+              <span>Fleet Ops</span>
               <b>{activeItem?.label || 'Dashboard'}</b>
             </div>
           </div>
           <div className="topbar-right">
             <NotificationBell />
             <span className="env-pill">
-              <i /> DEMO SYSTEM
+              <i /> Demo
             </span>
             <span className="role-chip">{roleLabel(user.role)}</span>
             <button type="button" className="btn btn-secondary btn-sm" onClick={handleLogout}>
@@ -198,7 +219,7 @@ function AppShell() {
           </div>
         </header>
 
-        <main className="content">
+        <main className="content" id="main-content" tabIndex={-1}>
           <Outlet />
         </main>
       </div>

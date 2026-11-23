@@ -1,0 +1,547 @@
+/* Refinements layered over style.css, extras.css and gps.css. */
+
+:root {
+  --muted: #5a6473;
+  --muted-2: #677183;
+  --radius: 12px;
+}
+
+html {
+  overflow-x: clip;
+  scroll-behavior: smooth;
+}
+
+body {
+  overflow-x: clip;
+  font-size: 14px;
+}
+
+::selection {
+  background: rgba(131, 29, 39, 0.16);
+}
+
+/* ---------- Keyboard focus ---------- */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+.sidebar :where(a, button):focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: -2px;
+}
+
+.table-wrap:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: none;
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px rgba(131, 29, 39, 0.18);
+}
+
+#main-content:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 6px;
+}
+
+.skip-link {
+  position: fixed;
+  top: 12px;
+  left: 16px;
+  z-index: 300;
+  padding: 10px 16px;
+  border-radius: 8px;
+  background: var(--brand);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  box-shadow: var(--shadow-lg);
+  transform: translateY(-180%);
+  transition: transform 0.15s ease;
+}
+
+.skip-link:focus-visible {
+  transform: none;
+}
+
+/* ---------- Typography scale ---------- */
+.eyebrow {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+  margin-bottom: 8px;
+}
+
+.page-title {
+  font-size: 28px;
+  line-height: 1.15;
+  overflow-wrap: break-word;
+}
+
+.page-sub {
+  font-size: 13.5px;
+  line-height: 1.6;
+}
+
+h2,
+h3,
+h4 {
+  overflow-wrap: break-word;
+}
+
+.nav-caption {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: rgba(255, 255, 255, 0.62);
+  padding: 4px 12px 7px;
+}
+
+.sidebar-nav {
+  overflow-x: hidden;
+}
+
+.nav {
+  font-size: 13.5px;
+  min-height: 44px;
+}
+
+.nav-active {
+  font-weight: 700;
+}
+
+.sidebar-user-text b {
+  font-size: 12.5px;
+}
+
+.sidebar-user-text small {
+  font-size: 11px;
+  opacity: 0.8;
+}
+
+.demo-tag {
+  font-size: 10px;
+  letter-spacing: 0.2px;
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.crumb {
+  font-size: 11.5px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.crumb b {
+  font-size: 13px;
+  letter-spacing: 0;
+}
+
+.env-pill,
+.role-chip {
+  font-size: 10.5px;
+  letter-spacing: 0;
+}
+
+/* ---------- Controls ---------- */
+input:not([type='checkbox']):not([type='radio']),
+select,
+textarea {
+  font-size: 13.5px;
+  padding: 10px 12px;
+}
+
+.btn {
+  font-size: 12.5px;
+  letter-spacing: 0;
+  min-height: 38px;
+}
+
+.btn-sm {
+  font-size: 11.5px;
+  min-height: 32px;
+  padding: 6px 10px;
+}
+
+.icon-btn {
+  width: 34px;
+  height: 34px;
+}
+
+.link-btn {
+  font-size: 12px;
+}
+
+.filter-tab {
+  font-size: 12.5px;
+}
+
+.badge {
+  font-size: 10.5px;
+  letter-spacing: 0;
+  padding: 4px 9px;
+}
+
+/* ---------- Surfaces ---------- */
+.panel {
+  border-radius: var(--radius);
+}
+
+.stat-card {
+  padding: 16px 17px;
+}
+
+.stats-grid {
+  grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
+}
+
+.report-kpis {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.stat-top {
+  font-size: 11.5px;
+  font-weight: 600;
+  min-height: 34px;
+}
+
+.stat-top svg {
+  width: 30px;
+  height: 30px;
+  padding: 6px;
+  border-radius: 9px;
+  background: var(--brand-soft);
+  color: var(--brand);
+  opacity: 1;
+}
+
+.stat-card strong {
+  font-size: 30px;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat-card small {
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+/* ---------- Tables ---------- */
+th {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--muted);
+  padding: 11px 10px;
+}
+
+td {
+  font-size: 12px;
+  padding: 11px 10px;
+}
+
+.table-wrap th,
+.table-wrap td {
+  padding-left: 10px;
+  padding-right: 10px;
+}
+
+.cell-stack {
+  min-width: 0;
+}
+
+.cell-stack small {
+  font-size: 11px;
+}
+
+.cell-stack > .badge {
+  align-self: flex-start;
+}
+
+.row-actions {
+  flex-wrap: nowrap;
+  gap: 4px;
+}
+
+.row-actions .icon-btn {
+  width: 30px;
+  height: 30px;
+}
+
+@media (min-width: 981px) {
+  .table-wrap th:last-child,
+  .table-wrap td:last-child {
+    position: sticky;
+    right: 0;
+    background: #fff;
+  }
+
+  .table-wrap th:last-child {
+    background: #fafbfc;
+    z-index: 2;
+  }
+
+  .table-wrap td:last-child {
+    border-left: 1px solid var(--line);
+    box-shadow: -8px 0 8px -8px rgba(17, 24, 39, 0.18);
+    z-index: 1;
+  }
+
+  .table-wrap tbody tr:hover td:last-child {
+    background: #fafbfd;
+  }
+}
+
+.table-state {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.empty-state {
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+/* ---------- Modal ---------- */
+.modal {
+  border-radius: 14px;
+}
+
+.modal-head h3 {
+  font-size: 16.5px;
+}
+
+.modal-head p {
+  font-size: 12px;
+}
+
+.modal-body {
+  padding: 20px;
+}
+
+/* ---------- Notifications ---------- */
+.notif-dropdown {
+  border-radius: 14px;
+}
+
+.notif-item-title {
+  font-size: 12.5px;
+}
+
+.notif-item small {
+  font-size: 11.5px;
+}
+
+.notif-item .notif-time {
+  font-size: 10.5px;
+}
+
+.notif-empty {
+  font-size: 12.5px;
+}
+
+.notif-page-main b {
+  font-size: 13.5px;
+}
+
+.notif-page-main p {
+  font-size: 12.5px;
+}
+
+.notif-page-meta small {
+  font-size: 11px;
+}
+
+/* ---------- Calendar ---------- */
+.gcal-day-num {
+  font-size: 11.5px;
+}
+
+.gcal-pill {
+  font-size: 9.5px;
+}
+
+.gcal-more {
+  font-size: 9.5px;
+}
+
+.gcal-booking span {
+  font-size: 11px;
+}
+
+.gcal-booking small {
+  font-size: 10.5px;
+}
+
+/* ---------- Reports & checklist ---------- */
+.report-range label {
+  font-size: 11.5px;
+}
+
+.report-bar-head {
+  font-size: 12px;
+}
+
+.checklist-view li {
+  font-size: 12.5px;
+}
+
+.checklist-item {
+  font-size: 12.5px;
+}
+
+/* ---------- Login ---------- */
+.login-lead {
+  font-size: 13.5px;
+  line-height: 1.6;
+}
+
+.login-points li {
+  font-size: 12.5px;
+}
+
+.login-note {
+  font-size: 11.5px;
+}
+
+.demo-accounts-title {
+  font-size: 11px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.demo-account {
+  border-radius: 9px;
+  padding: 9px 11px;
+}
+
+.demo-account b {
+  font-size: 12px;
+}
+
+.demo-account small {
+  font-size: 10.5px;
+}
+
+.demo-account span {
+  font-size: 10.5px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.field > span:first-child {
+  font-size: 11.5px;
+}
+
+.field-label {
+  display: block;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--muted);
+  margin-bottom: 5px;
+}
+
+.password-wrap {
+  position: relative;
+  display: block;
+}
+
+.password-wrap input {
+  padding-right: 44px;
+}
+
+.password-toggle {
+  position: absolute;
+  right: 5px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.password-toggle:hover {
+  background: #f3f5f8;
+  color: var(--ink-soft);
+}
+
+.sidebar-backdrop {
+  border: 0;
+  padding: 0;
+}
+
+/* ---------- Mobile ---------- */
+@media (min-width: 981px) {
+  .mobile-menu {
+    display: none;
+  }
+
+  .cell-stack {
+    max-width: 230px;
+  }
+
+  .cell-stack b {
+    white-space: normal;
+    overflow-wrap: break-word;
+  }
+}
+
+@media (max-width: 720px) {
+  .content {
+    padding: 20px 16px 40px;
+  }
+
+  .page-title {
+    font-size: 24px;
+  }
+
+  .btn {
+    min-height: 44px;
+  }
+
+  .btn-sm {
+    min-height: 36px;
+  }
+
+  .icon-btn {
+    width: 40px;
+    height: 40px;
+  }
+
+  .report-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 430px) {
+  .report-kpis {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

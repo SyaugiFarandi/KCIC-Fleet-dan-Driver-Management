@@ -423,7 +423,7 @@ export default function Bookings() {
   return (
     <>
       <PageHeader
-        eyebrow="TRANSPORT REQUESTS"
+        eyebrow="Permintaan transportasi"
         title="Booking Transportasi"
         subtitle="Buat permintaan, setujui, tugaskan armada, dan pantau status perjalanan."
         actions={

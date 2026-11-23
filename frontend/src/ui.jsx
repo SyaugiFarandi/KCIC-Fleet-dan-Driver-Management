@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { AlertCircle, CheckCircle2, Info, Loader2, Search, X } from 'lucide-react';
 import { fmtDateTime, statusLabel, statusTone } from './format.js';
 
@@ -92,7 +92,7 @@ export function SearchBox({ value, onChange, placeholder = 'Cari data...' }) {
 
 export function DataTable({ columns, rows, loading, empty = 'Belum ada data untuk ditampilkan.' }) {
   return (
-    <div className="table-wrap">
+    <div className="table-wrap" role="region" aria-label="Tabel data" tabIndex={0}>
       <table>
         <thead>
           <tr>
@@ -105,7 +105,7 @@ export function DataTable({ columns, rows, loading, empty = 'Belum ada data untu
           {loading ? (
             <tr>
               <td colSpan={columns.length}>
-                <div className="table-state">
+                <div className="table-state" role="status" aria-live="polite">
                   <Spinner /> Memuat data...
                 </div>
               </td>
@@ -141,13 +141,60 @@ export function EmptyState({ title = 'Tidak ada data', children }) {
 }
 
 export function Modal({ title, subtitle, onClose, children, footer, size }) {
+  const panelRef = useRef(null);
+  const onCloseRef = useRef(onClose);
+  const titleId = useId();
+
   useEffect(() => {
+    onCloseRef.current = onClose;
+  });
+
+  useEffect(() => {
+    const panel = panelRef.current;
+    const previousFocus = document.activeElement;
+    const getFocusable = () =>
+      Array.from(
+        panel?.querySelectorAll(
+          'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        ) || []
+      );
+    const initial =
+      panel?.querySelector('input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled])') ||
+      getFocusable()[0] ||
+      panel;
+    initial?.focus();
+
     const onKey = (event) => {
-      if (event.key === 'Escape') onClose?.();
+      if (event.key === 'Escape') {
+        onCloseRef.current?.();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const items = getFocusable();
+      if (items.length === 0) {
+        event.preventDefault();
+        return;
+      }
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+
+    document.addEventListener('keydown', onKey);
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = previousOverflow;
+      if (previousFocus instanceof HTMLElement) previousFocus.focus();
+    };
+  }, []);
 
   return (
     <div
@@ -156,10 +203,17 @@ export function Modal({ title, subtitle, onClose, children, footer, size }) {
         if (event.target === event.currentTarget) onClose?.();
       }}
     >
-      <div className={`modal ${size === 'lg' ? 'modal-lg' : ''}`.trim()} role="dialog" aria-modal="true">
+      <div
+        ref={panelRef}
+        className={`modal ${size === 'lg' ? 'modal-lg' : ''}`.trim()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+      >
         <div className="modal-head">
           <div>
-            <h3>{title}</h3>
+            <h3 id={titleId}>{title}</h3>
             {subtitle && <p>{subtitle}</p>}
           </div>
           {onClose && (

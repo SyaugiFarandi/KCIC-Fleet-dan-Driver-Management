@@ -249,7 +249,7 @@ export default function Drivers() {
   return (
     <>
       <PageHeader
-        eyebrow="DRIVER POOL"
+        eyebrow="Pool driver"
         title="Manajemen Driver"
         subtitle="Kelola data driver internal dan vendor, masa berlaku SIM, serta akun login driver."
         actions={

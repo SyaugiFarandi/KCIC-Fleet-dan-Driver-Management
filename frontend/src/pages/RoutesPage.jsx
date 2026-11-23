@@ -147,7 +147,7 @@ export default function RoutesPage() {
   return (
     <>
       <PageHeader
-        eyebrow="TRANSPORT MASTER DATA"
+        eyebrow="Data induk transportasi"
         title="Master Rute"
         subtitle="Rute perjalanan yang dapat dipilih saat membuat permintaan transportasi."
         actions={

@@ -164,7 +164,7 @@ export default function Users() {
   return (
     <>
       <PageHeader
-        eyebrow="ACCESS CONTROL"
+        eyebrow="Kontrol akses"
         title="Pengguna & Role"
         subtitle="Kelola akun, role, dan status aktif pengguna. Hak akses per role juga ditegakkan di API."
         actions={

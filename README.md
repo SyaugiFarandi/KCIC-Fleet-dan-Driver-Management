@@ -9,7 +9,9 @@ audit trail, role-based access control, and a DEMO GPS monitoring module.
 
 ## Stack
 
-- Frontend: React 18 + Vite 5, Leaflet 1.9 + OpenStreetMap (GPS map), custom CSS
+- Frontend: React 18 + Vite 5, Leaflet 1.9 + OpenStreetMap (GPS map), custom CSS with
+  design tokens, visible focus states, skip link, focus-trapped modals and reduced-motion
+  support
 - Backend: Node.js 20+, Express 4, Prisma 5, zod validation, JWT + bcrypt
 - Database: PostgreSQL 16
 - Tests: node:test + supertest (54 automated API tests)
@@ -116,6 +118,19 @@ hiding menus. For example `gps:read` is limited to staff roles (`DRIVER` and `CR
 receive HTTP 403), geofence/device changes and GPS event acknowledgement require `gps:write`
 (`SYSTEM_ADMIN`, `FLEET_MANAGER`, `FLEET_OFFICER`), and reports (`reports:read`) are staff-only
 (`DRIVER`/`CREW_EMPLOYEE` get 403 on both summary and CSV). See `docs/ROLE_LIST.md`.
+
+## Security notes (local demo hardening)
+
+- The nginx image sends a strict CSP plus `X-Content-Type-Options`, `X-Frame-Options:
+  DENY`, Referrer-Policy, Permissions-Policy and COOP/CORP; the Express app sends the same
+  browser headers for manual/dev runs. Verified: `nginx -t` passes and the built SPA loads
+  with **0 CSP violations** (Google Fonts and OSM tiles explicitly allowed).
+- API CORS uses an allowlist. Override with `CORS_ORIGIN` (comma-separated origins) if you
+  change host ports.
+- CSV exports are guarded against spreadsheet formula injection.
+- The API container runs as the non-root `node` user.
+- The JWT is kept in `localStorage` (local demo convenience). A production build should move
+  to httpOnly cookies, HTTPS/HSTS, and externalized secrets.
 
 ## Tests
 

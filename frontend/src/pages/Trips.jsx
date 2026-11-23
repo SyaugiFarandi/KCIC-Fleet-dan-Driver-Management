@@ -385,7 +385,7 @@ export default function Trips() {
   return (
     <>
       <PageHeader
-        eyebrow="TRIP DISPATCH & EXECUTION"
+        eyebrow="Dispatch & eksekusi perjalanan"
         title="Trip Management"
         subtitle={
           isDriver
