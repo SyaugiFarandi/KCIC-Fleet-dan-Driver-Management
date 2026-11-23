@@ -1,0 +1,387 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  SYSTEM_ADMIN
+  FLEET_MANAGER
+  OPERATIONAL_MANAGER
+  DISPATCHER
+  TRANSPORT_COORDINATOR
+  FLEET_OFFICER
+  DRIVER_COORDINATOR
+  MAINTENANCE_OFFICER
+  VENDOR_MANAGER
+  DRIVER
+  CREW_EMPLOYEE
+}
+
+enum BookingStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  ASSIGNED
+  COMPLETED
+  CANCELLED
+}
+
+enum TripStatus {
+  SCHEDULED
+  DRIVER_ACCEPTED
+  PICKED_UP
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum VehicleStatus {
+  AVAILABLE
+  ASSIGNED
+  MAINTENANCE
+  INACTIVE
+}
+
+enum MaintenanceStatus {
+  PLANNED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum Ownership {
+  KCIC
+  VENDOR
+}
+
+enum GpsDeviceStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum GpsEventType {
+  GEOFENCE_ENTER
+  GEOFENCE_EXIT
+  OVERSPEED
+  HARSH_BRAKING
+  IDLE
+  DEVICE_OFFLINE
+  SIGNAL_RESTORED
+  IGNITION_ON
+  IGNITION_OFF
+  ROUTE_DEVIATION
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String
+  email         String    @unique
+  passwordHash  String
+  role          Role
+  department    String?
+  phone         String?
+  active        Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  bookings         Booking[]     @relation("Requester")
+  decisions        Booking[]     @relation("BookingDecider")
+  assignedTrips    Trip[]        @relation("TripAssigner")
+  tripEvents       TripEvent[]
+  driverProfile    Driver?
+  auditLogs        AuditLog[]
+  maintenanceItems Maintenance[] @relation("MaintenanceCreator")
+  notifications    Notification[]
+  gpsEventAcks     GpsEvent[]    @relation("GpsEventAck")
+}
+
+model Vendor {
+  id          String   @id @default(cuid())
+  name        String
+  contactName String
+  phone       String
+  email       String?
+  address     String?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  vehicles Vehicle[]
+  drivers  Driver[]
+}
+
+model Vehicle {
+  id            String        @id @default(cuid())
+  plateNumber   String        @unique
+  brand         String
+  model         String
+  category      String
+  capacity      Int
+  ownership     Ownership     @default(KCIC)
+  year          Int?
+  color         String?
+  status        VehicleStatus @default(AVAILABLE)
+  odometerKm    Int?
+  lastServiceAt DateTime?
+  stnkExpiry      DateTime?
+  insuranceExpiry DateTime?
+  notes         String?
+  vendorId      String?
+  vendor        Vendor?       @relation(fields: [vendorId], references: [id])
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  trips       Trip[]
+  maintenance Maintenance[]
+  gpsDevice   GpsDevice?
+  locations   VehicleLocation[]
+  gpsEvents   GpsEvent[]
+
+  @@index([status])
+  @@index([vendorId])
+}
+
+model Driver {
+  id              String   @id @default(cuid())
+  name            String
+  phone           String
+  licenseNumber   String   @unique
+  licenseCategory String   @default("SIM A")
+  licenseExpiry   DateTime
+  type            String   @default("INTERNAL")
+  active          Boolean  @default(true)
+  available       Boolean  @default(true)
+  notes           String?
+  vendorId        String?
+  vendor          Vendor?  @relation(fields: [vendorId], references: [id])
+  userId          String?  @unique
+  user            User?    @relation(fields: [userId], references: [id])
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  trips Trip[]
+
+  @@index([available])
+}
+
+model Route {
+  id              String   @id @default(cuid())
+  code            String   @unique
+  origin          String
+  destination     String
+  estimatedMinutes Int
+  distanceKm      Float
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  bookings Booking[]
+}
+
+model Booking {
+  id              String        @id @default(cuid())
+  code            String        @unique
+  requesterId     String
+  requester       User          @relation("Requester", fields: [requesterId], references: [id])
+  department      String
+  purpose         String
+  passengerCount  Int
+  origin          String
+  destination     String
+  routeId         String?
+  route           Route?        @relation(fields: [routeId], references: [id])
+  departureAt     DateTime
+  returnAt        DateTime?
+  seriesId        String?
+  status          BookingStatus @default(PENDING)
+  rejectionReason String?
+  cancelledReason String?
+  decidedById     String?
+  decidedBy       User?         @relation("BookingDecider", fields: [decidedById], references: [id])
+  decidedAt       DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  trip Trip?
+
+  @@index([status])
+  @@index([departureAt])
+  @@index([requesterId])
+  @@index([seriesId])
+}
+
+model Trip {
+  id          String     @id @default(cuid())
+  bookingId   String     @unique
+  booking     Booking    @relation(fields: [bookingId], references: [id])
+  vehicleId   String
+  vehicle     Vehicle    @relation(fields: [vehicleId], references: [id])
+  driverId    String
+  driver      Driver     @relation(fields: [driverId], references: [id])
+  status      TripStatus @default(SCHEDULED)
+  assignedById String?
+  assignedBy  User?      @relation("TripAssigner", fields: [assignedById], references: [id])
+  assignedAt  DateTime   @default(now())
+  acceptedAt  DateTime?
+  startedAt   DateTime?
+  completedAt DateTime?
+  cancelledAt DateTime?
+  notes       String?
+  checklist   Json?
+  updatedAt   DateTime   @updatedAt
+
+  events TripEvent[]
+  locations VehicleLocation[]
+  gpsEvents GpsEvent[]
+
+  @@index([status])
+  @@index([vehicleId])
+  @@index([driverId])
+}
+
+model TripEvent {
+  id        String     @id @default(cuid())
+  tripId    String
+  trip      Trip       @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  status    TripStatus
+  note      String?
+  actorId   String?
+  actor     User?      @relation(fields: [actorId], references: [id])
+  createdAt DateTime   @default(now())
+
+  @@index([tripId])
+}
+
+model Maintenance {
+  id          String            @id @default(cuid())
+  vehicleId   String
+  vehicle     Vehicle           @relation(fields: [vehicleId], references: [id])
+  title       String
+  description String            @default("")
+  scheduledAt DateTime
+  status      MaintenanceStatus @default(PLANNED)
+  cost        Float             @default(0)
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdById String?
+  createdBy   User?             @relation("MaintenanceCreator", fields: [createdById], references: [id])
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@index([status])
+  @@index([vehicleId])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  action    String
+  entity    String
+  entityId  String
+  detail    String   @default("")
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([entity])
+}
+
+/// GPS telemetry is produced by the local DEMO simulator, not a real provider.
+model GpsDevice {
+  id          String          @id @default(cuid())
+  imei        String          @unique
+  vehicleId   String          @unique
+  vehicle     Vehicle         @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  provider    String          @default("DEMO_SIMULATOR")
+  status      GpsDeviceStatus @default(ACTIVE)
+  simNumber   String?
+  installedAt DateTime?
+  lastPingAt  DateTime?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  locations VehicleLocation[]
+  events    GpsEvent[]
+}
+
+model VehicleLocation {
+  id         String       @id @default(cuid())
+  vehicleId  String
+  vehicle    Vehicle      @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  deviceId   String?
+  device     GpsDevice?   @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  tripId     String?
+  trip       Trip?        @relation(fields: [tripId], references: [id], onDelete: SetNull)
+  lat        Float
+  lng        Float
+  speedKph   Float        @default(0)
+  heading    Float?
+  ignition   Boolean      @default(true)
+  accuracyM  Float?
+  source     String       @default("DEMO_SIMULATOR")
+  recordedAt DateTime     @default(now())
+
+  @@index([vehicleId, recordedAt])
+  @@index([tripId, recordedAt])
+  @@index([recordedAt])
+}
+
+model GpsEvent {
+  id         String       @id @default(cuid())
+  vehicleId  String
+  vehicle    Vehicle      @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  deviceId   String?
+  device     GpsDevice?   @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  tripId     String?
+  trip       Trip?        @relation(fields: [tripId], references: [id], onDelete: SetNull)
+  geofenceId String?
+  geofence   Geofence?    @relation(fields: [geofenceId], references: [id], onDelete: SetNull)
+  type       GpsEventType
+  message    String
+  lat        Float?
+  lng        Float?
+  speedKph   Float?
+  source     String       @default("DEMO_SIMULATOR")
+  occurredAt DateTime     @default(now())
+  acknowledgedAt   DateTime?
+  acknowledgedById String?
+  acknowledgedBy   User?     @relation("GpsEventAck", fields: [acknowledgedById], references: [id], onDelete: SetNull)
+
+  @@index([vehicleId, occurredAt])
+  @@index([type])
+  @@index([occurredAt])
+}
+
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String
+  title     String
+  message   String
+  link      String?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, readAt])
+  @@index([userId, createdAt])
+}
+
+model Geofence {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  category  String   @default("ZONE")
+  centerLat Float
+  centerLng Float
+  radiusM   Int
+  active    Boolean  @default(true)
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  events GpsEvent[]
+}

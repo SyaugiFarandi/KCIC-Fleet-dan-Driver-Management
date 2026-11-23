@@ -1,0 +1,30 @@
+{
+  "name": "kcic-fleet-api",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "KCIC Fleet & Driver Management API (local demo)",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "seed": "node prisma/seed.js",
+    "migrate": "prisma migrate deploy",
+    "migrate:dev": "prisma migrate dev",
+    "generate": "prisma generate",
+    "test": "node test/prepare-db.js && node --test --test-concurrency=1 test/auth.test.js test/rbac.test.js test/workflow.test.js test/master-data.test.js test/users.test.js test/gps.test.js test/features.test.js"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.22.0",
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "pg": "^8.23.1",
+    "prisma": "^5.22.0",
+    "supertest": "^7.0.0"
+  }
+}
