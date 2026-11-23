@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Ban, CalendarDays, Check, Eye, List, Pencil, Plus, RefreshCw, Repeat, Trash2, Truck, X } from 'lucide-react';
 import BookingCalendar from './BookingCalendar.jsx';
 import { api, apiDelete, apiPatch, apiPost } from '../api.js';
@@ -7,6 +8,7 @@ import { can } from '../permissions.js';
 import { fmtDateTime, toDateTimeLocal } from '../format.js';
 import {
   Badge,
+  ColumnPicker,
   DataTable,
   DetailItem,
   ErrorBanner,
@@ -17,7 +19,9 @@ import {
   Spinner,
   Timeline,
   useConfirm,
+  useLocalStorageState,
   useToast,
+  useUnsavedGuard,
 } from '../ui.jsx';
 
 const STATUS_TABS = [
@@ -54,12 +58,17 @@ export default function Bookings() {
   const [options, setOptions] = useState({ routes: [], departments: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [filters, setFilters] = useState({ q: '', status: '' });
+  const [filters, setFilters] = useLocalStorageState('fleet_booking_filters_v1', { q: '', status: '' });
+  const [hiddenColumns, setHiddenColumns] = useLocalStorageState('fleet_booking_columns_v1', { passengerCount: true });
+  const [selected, setSelected] = useState(() => new Set());
   const [view, setView] = useState('list');
 
   const [modal, setModal] = useState(null);
   const [form, setForm] = useState({});
+  const [formErrors, setFormErrors] = useState({});
   const [busy, setBusy] = useState(false);
+  const deleteTimers = useRef(new Map());
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [detail, setDetail] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -156,6 +165,7 @@ export default function Bookings() {
 
   const openCreate = () => {
     setForm(emptyForm(user));
+    setFormErrors({});
     setModal({ type: 'create' });
   };
 
@@ -171,8 +181,48 @@ export default function Bookings() {
       departureAt: toDateTimeLocal(booking.departureAt),
       returnAt: toDateTimeLocal(booking.returnAt),
     });
+    setFormErrors({});
     setModal({ type: 'edit', booking });
   };
+
+  const formDirty =
+    (modal?.type === 'create' || modal?.type === 'edit') &&
+    Boolean(form.purpose || form.origin || form.destination || form.departureAt || form.repeat || (form.routeMode === 'route' && form.routeId));
+  useUnsavedGuard(formDirty);
+
+  const closeFormModal = async () => {
+    if (formDirty) {
+      const ok = await confirm({
+        title: 'Tutup formulir booking?',
+        message: 'Perubahan yang belum disimpan akan hilang.',
+        confirmLabel: 'Tutup tanpa simpan',
+        tone: 'danger',
+      });
+      if (!ok) return;
+    }
+    setModal(null);
+  };
+
+  useEffect(() => {
+    const status = searchParams.get('status');
+    const wantsNew = searchParams.get('new') === '1';
+    if (status) setFilters((current) => ({ ...current, status }));
+    if (wantsNew) {
+      setForm(emptyForm(user));
+      setFormErrors({});
+      setModal({ type: 'create' });
+    }
+    if (status || wantsNew) setSearchParams({}, { replace: true });
+    // Hydrate only on the first render with query params.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(
+    () => () => {
+      deleteTimers.current.forEach((timer) => window.clearTimeout(timer));
+    },
+    []
+  );
 
   const openDispatch = (booking) => {
     setModal({ type: 'dispatch', booking });
@@ -180,10 +230,31 @@ export default function Bookings() {
 
   const submitBooking = async (event) => {
     event.preventDefault();
+    const errors = {};
+    if (!form.purpose?.trim() || form.purpose.trim().length < 3) errors.purpose = 'Tujuan perjalanan minimal 3 karakter.';
+    const pax = Number(form.passengerCount);
+    if (!Number.isInteger(pax) || pax < 1 || pax > 80) errors.passengerCount = 'Jumlah penumpang harus antara 1 dan 80.';
+    if (form.routeMode === 'route' && !form.routeId) errors.routeId = 'Pilih rute perjalanan atau isi asal/tujuan manual.';
+    if (form.routeMode === 'manual') {
+      if (!form.origin?.trim() || form.origin.trim().length < 2) errors.origin = 'Lokasi penjemputan minimal 2 karakter.';
+      if (!form.destination?.trim() || form.destination.trim().length < 2) errors.destination = 'Lokasi tujuan minimal 2 karakter.';
+    }
+    if (!form.departureAt) errors.departureAt = 'Waktu keberangkatan wajib diisi.';
+    else if (new Date(form.departureAt).getTime() < Date.now() - 5 * 60 * 1000) errors.departureAt = 'Waktu keberangkatan tidak boleh di masa lalu.';
+    if (form.returnAt && form.departureAt && new Date(form.returnAt) <= new Date(form.departureAt)) {
+      errors.returnAt = 'Waktu kembali harus setelah waktu keberangkatan.';
+    }
+    if (modal.type === 'create' && form.repeat) {
+      const count = Number(form.repeatCount);
+      if (!Number.isInteger(count) || count < 2 || count > 8) errors.repeatCount = 'Jumlah jadwal seri harus 2–8.';
+    }
+    setFormErrors(errors);
+    if (Object.keys(errors).length) return;
+
     const payload = {
       department: form.department?.trim() || undefined,
       purpose: form.purpose.trim(),
-      passengerCount: Number(form.passengerCount),
+      passengerCount: pax,
       departureAt: new Date(form.departureAt).toISOString(),
       returnAt: form.returnAt ? new Date(form.returnAt).toISOString() : null,
       routeId: form.routeMode === 'route' ? form.routeId : null,
@@ -191,10 +262,6 @@ export default function Bookings() {
     if (form.routeMode === 'manual') {
       payload.origin = form.origin.trim();
       payload.destination = form.destination.trim();
-    }
-    if (form.routeMode === 'route' && !form.routeId) {
-      toast.error('Pilih rute perjalanan atau isi asal/tujuan manual.');
-      return;
     }
     if (modal.type === 'create' && form.repeat) {
       payload.recurrence = { frequency: form.frequency, count: Number(form.repeatCount) };
@@ -255,17 +322,78 @@ export default function Bookings() {
     const ok = await confirm({
       title: 'Hapus booking?',
       message: `Booking ${booking.code} akan dihapus permanen.`,
+      detail: 'Penghapusan ditunda sekitar 8 detik; gunakan tombol “Urungkan” pada notifikasi jika berubah pikiran.',
       confirmLabel: 'Hapus',
       tone: 'danger',
     });
     if (!ok) return;
+    const snapshot = items;
+    setItems((current) => current.filter((item) => item.id !== booking.id));
+    const timer = window.setTimeout(async () => {
+      deleteTimers.current.delete(booking.id);
+      try {
+        await apiDelete(`/bookings/${booking.id}`);
+        toast.info(`Booking ${booking.code} dihapus permanen.`);
+      } catch (err) {
+        toast.error(err.message);
+        setItems(snapshot);
+      }
+    }, 8000);
+    deleteTimers.current.set(booking.id, timer);
+    toast.success(`Booking ${booking.code} dihapus.`, {
+      action: {
+        label: 'Urungkan',
+        onClick: () => {
+          const pending = deleteTimers.current.get(booking.id);
+          if (pending) window.clearTimeout(pending);
+          deleteTimers.current.delete(booking.id);
+          setItems(snapshot);
+        },
+      },
+    });
+  };
+
+  const cancelSeries = async (booking) => {
+    const ok = await confirm({
+      title: 'Batalkan seluruh seri booking?',
+      message: `Semua jadwal aktif pada seri dengan kode ${booking.code} akan dibatalkan.`,
+      confirmLabel: 'Batalkan seri',
+      tone: 'danger',
+    });
+    if (!ok) return;
+    setBusy(true);
     try {
-      await apiDelete(`/bookings/${booking.id}`);
-      toast.success('Booking dihapus.');
+      const result = await apiPatch(`/bookings/series/${booking.seriesId}/cancel`, reason.trim() ? { reason: reason.trim() } : {});
+      toast.success(`${result.cancelled} jadwal dibatalkan${result.skipped ? `, ${result.skipped} jadwal dilewati karena sudah selesai/tidak dapat dibatalkan` : ''}.`);
+      setModal(null);
+      setReason('');
       await load();
     } catch (err) {
       toast.error(err.message);
+    } finally {
+      setBusy(false);
     }
+  };
+
+  const bulkApprove = async () => {
+    const pending = filtered.filter((booking) => selected.has(String(booking.id)) && booking.status === 'PENDING');
+    if (!pending.length) return;
+    setBusy(true);
+    let done = 0;
+    let failed = 0;
+    for (const booking of pending) {
+      try {
+        await apiPatch(`/bookings/${booking.id}/decision`, { decision: 'APPROVED' });
+        done += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+    setBusy(false);
+    setSelected(new Set());
+    if (done) toast.success(`${done} booking disetujui${failed ? `, ${failed} gagal` : ''}.`);
+    else toast.error('Tidak ada booking yang berhasil disetujui.');
+    await load();
   };
 
   const submitDispatch = async (event) => {
@@ -420,6 +548,9 @@ export default function Bookings() {
     },
   ];
 
+  const tableColumns = columns.filter((column) => column.key === 'actions' || !hiddenColumns[column.key]);
+  const selectedPending = filtered.filter((booking) => selected.has(String(booking.id)) && booking.status === 'PENDING').length;
+
   return (
     <>
       <PageHeader
@@ -444,6 +575,14 @@ export default function Bookings() {
         <div className="toolbar">
           <SearchBox value={filters.q} onChange={(q) => setFilters({ ...filters, q })} placeholder="Cari kode, pemohon, rute..." />
           <div className="toolbar-right">
+            <span className="result-count">
+              {filtered.length} dari {items.length} booking
+            </span>
+            <ColumnPicker
+              columns={columns.filter((column) => column.key !== 'actions')}
+              hidden={hiddenColumns}
+              onChange={setHiddenColumns}
+            />
             <div className="filter-tabs">
               {STATUS_TABS.map(([value, label]) => (
                 <button
@@ -478,8 +617,39 @@ export default function Bookings() {
           </div>
         </div>
 
+        {canDecide && selectedPending > 0 && (
+          <div className="bulk-bar">
+            <span>
+              <b>{selectedPending}</b> booking terpilih menunggu persetujuan
+            </span>
+            <div className="bulk-actions">
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setSelected(new Set())} disabled={busy}>
+                Bersihkan
+              </button>
+              <button type="button" className="btn btn-primary btn-sm" onClick={bulkApprove} disabled={busy}>
+                <Check size={14} /> {busy ? 'Memproses...' : 'Setujui terpilih'}
+              </button>
+            </div>
+          </div>
+        )}
+
         {view === 'list' ? (
-          <DataTable columns={columns} rows={filtered} loading={loading} empty="Tidak ada booking sesuai filter." />
+          <DataTable
+            columns={tableColumns}
+            rows={filtered}
+            loading={loading}
+            empty="Tidak ada booking sesuai filter."
+            emptyAction={
+              <button type="button" className="btn btn-primary btn-sm" onClick={openCreate}>
+                <Plus size={14} /> Buat booking pertama
+              </button>
+            }
+            rowKey={(booking) => String(booking.id)}
+            selectable={canDecide}
+            selectedIds={selected}
+            onSelect={setSelected}
+            pageSize={25}
+          />
         ) : (
           <BookingCalendar
             bookings={filtered}
@@ -493,11 +663,11 @@ export default function Bookings() {
         <Modal
           title={modal.type === 'create' ? 'Buat Permintaan Transportasi' : `Ubah Booking ${modal.booking.code}`}
           subtitle="Waktu keberangkatan tidak boleh di masa lalu."
-          onClose={() => setModal(null)}
+          onClose={closeFormModal}
           size="lg"
           footer={
             <>
-              <button type="button" className="btn btn-secondary" onClick={() => setModal(null)}>
+              <button type="button" className="btn btn-secondary" onClick={closeFormModal}>
                 Batal
               </button>
               <button type="submit" form="booking-form" className="btn btn-primary" disabled={busy}>
@@ -506,7 +676,7 @@ export default function Bookings() {
             </>
           }
         >
-          <form id="booking-form" onSubmit={submitBooking}>
+          <form id="booking-form" onSubmit={submitBooking} noValidate>
             <div className="form-grid">
               <Field label="Departemen">
                 <input
@@ -521,7 +691,7 @@ export default function Bookings() {
                   ))}
                 </datalist>
               </Field>
-              <Field label="Jumlah Penumpang">
+              <Field label="Jumlah Penumpang" error={formErrors.passengerCount}>
                 <input
                   required
                   type="number"
@@ -531,7 +701,7 @@ export default function Bookings() {
                   onChange={(event) => setForm({ ...form, passengerCount: event.target.value })}
                 />
               </Field>
-              <Field label="Tujuan Perjalanan" className="span-2">
+              <Field label="Tujuan Perjalanan" className="span-2" error={formErrors.purpose}>
                 <input
                   required
                   minLength={3}
@@ -540,7 +710,12 @@ export default function Bookings() {
                   placeholder="Contoh: Meeting koordinasi di Bandung"
                 />
               </Field>
-              <Field label="Rute" className="span-2" hint="Pilih rute master atau isi asal/tujuan manual.">
+              <Field
+                label="Rute"
+                className="span-2"
+                error={formErrors.routeId}
+                hint={formErrors.routeId ? undefined : 'Pilih rute master atau isi asal/tujuan manual.'}
+              >
                 <select
                   value={form.routeMode === 'manual' ? '__manual' : form.routeId}
                   onChange={(event) => {
@@ -562,7 +737,7 @@ export default function Bookings() {
               </Field>
               {form.routeMode === 'manual' && (
                 <>
-                  <Field label="Lokasi Penjemputan">
+                  <Field label="Lokasi Penjemputan" error={formErrors.origin}>
                     <input
                       required
                       minLength={2}
@@ -571,7 +746,7 @@ export default function Bookings() {
                       placeholder="Contoh: Stasiun Halim"
                     />
                   </Field>
-                  <Field label="Lokasi Tujuan">
+                  <Field label="Lokasi Tujuan" error={formErrors.destination}>
                     <input
                       required
                       minLength={2}
@@ -582,7 +757,7 @@ export default function Bookings() {
                   </Field>
                 </>
               )}
-              <Field label="Waktu Keberangkatan">
+              <Field label="Waktu Keberangkatan" error={formErrors.departureAt}>
                 <input
                   required
                   type="datetime-local"
@@ -590,7 +765,7 @@ export default function Bookings() {
                   onChange={(event) => setForm({ ...form, departureAt: event.target.value })}
                 />
               </Field>
-              <Field label="Waktu Kembali (opsional)">
+              <Field label="Waktu Kembali (opsional)" error={formErrors.returnAt}>
                 <input
                   type="datetime-local"
                   value={form.returnAt}
@@ -618,7 +793,11 @@ export default function Bookings() {
                           <option value="WEEKLY">Mingguan</option>
                         </select>
                       </Field>
-                      <Field label="Jumlah jadwal" hint="2–8 jadwal, termasuk jadwal pertama.">
+                      <Field
+                        label="Jumlah jadwal"
+                        error={formErrors.repeatCount}
+                        hint={formErrors.repeatCount ? undefined : '2–8 jadwal, termasuk jadwal pertama.'}
+                      >
                         <input
                           type="number"
                           min="2"
@@ -647,6 +826,11 @@ export default function Bookings() {
               <button type="button" className="btn btn-secondary" onClick={() => setModal(null)}>
                 Tutup
               </button>
+              {detail?.seriesId && canCancel(detail) && (
+                <button type="button" className="btn btn-danger" onClick={() => cancelSeries(detail)} disabled={busy}>
+                  <Repeat size={15} /> Batalkan Seluruh Seri
+                </button>
+              )}
               {detail?.status === 'APPROVED' && canAssign && (
                 <button type="button" className="btn btn-primary" onClick={() => openDispatch(detail)}>
                   <Truck size={15} /> Tugaskan Kendaraan &amp; Driver

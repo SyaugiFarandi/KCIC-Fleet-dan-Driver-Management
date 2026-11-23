@@ -3,6 +3,7 @@ import { prisma } from '../db.js';
 import { HttpError, asyncRoute } from '../lib/http.js';
 import { requirePermission } from '../lib/permissions.js';
 import { sendCsv } from '../lib/csv.js';
+import { sendXls } from '../lib/excel.js';
 import { ACTIVE_TRIP_STATUSES } from '../lib/workflow.js';
 
 const router = express.Router();
@@ -267,44 +268,68 @@ const DATASETS = {
   },
 };
 
-router.get('/export.csv', asyncRoute(async (req, res) => {
-  const dataset = String(req.query.dataset || 'bookings');
-  const config = DATASETS[dataset];
-  if (!config) throw new HttpError(400, 'Jenis ekspor laporan tidak dikenal');
-  const { from, to } = parseRange(req.query);
-  const report = await loadReport(from, to);
-
-  let rows;
+async function datasetRows(dataset, from, to, report) {
   if (dataset === 'bookings') {
     const bookings = await prisma.booking.findMany({
       where: { departureAt: { gte: from, lte: to } },
       include: { requester: { select: { name: true } } },
       orderBy: { departureAt: 'asc' },
     });
-    rows = bookings.map((booking) => ({
+    return bookings.map((booking) => ({
       code: booking.code,
       requester: booking.requester?.name || '',
       department: booking.department,
       purpose: booking.purpose,
       origin: booking.origin,
       destination: booking.destination,
-      departureAt: iso(booking.departureAt),
-      returnAt: iso(booking.returnAt),
+      departureAt: booking.departureAt,
+      returnAt: booking.returnAt,
       passengers: booking.passengerCount,
       status: booking.status,
     }));
-  } else if (dataset === 'trips') {
-    rows = report.trips.map((trip) => ({ ...trip, departureAt: iso(trip.departureAt), startedAt: iso(trip.startedAt), completedAt: iso(trip.completedAt) }));
-  } else if (dataset === 'vehicles') {
-    rows = report.perVehicle;
-  } else if (dataset === 'maintenance') {
-    rows = report.maintenance.map((item) => ({ ...item, scheduledAt: iso(item.scheduledAt), completedAt: iso(item.completedAt) }));
-  } else {
-    rows = report.bookingByDepartment;
   }
+  if (dataset === 'trips') return report.trips;
+  if (dataset === 'vehicles') return report.perVehicle;
+  if (dataset === 'maintenance') return report.maintenance;
+  return report.bookingByDepartment;
+}
 
+function csvRows(dataset, rows) {
+  if (dataset === 'trips') {
+    return rows.map((trip) => ({ ...trip, departureAt: iso(trip.departureAt), startedAt: iso(trip.startedAt), completedAt: iso(trip.completedAt) }));
+  }
+  if (dataset === 'maintenance') {
+    return rows.map((item) => ({ ...item, scheduledAt: iso(item.scheduledAt), completedAt: iso(item.completedAt) }));
+  }
+  if (dataset === 'bookings') {
+    return rows.map((booking) => ({
+      ...booking,
+      departureAt: iso(booking.departureAt),
+      returnAt: iso(booking.returnAt),
+    }));
+  }
+  return rows;
+}
+
+async function resolveExport(req) {
+  const dataset = String(req.query.dataset || 'bookings');
+  const config = DATASETS[dataset];
+  if (!config) throw new HttpError(400, 'Jenis ekspor laporan tidak dikenal');
+  const { from, to } = parseRange(req.query);
+  const report = await loadReport(from, to);
+  const rows = await datasetRows(dataset, from, to, report);
   const stamp = from.toISOString().slice(0, 10).replaceAll('-', '');
-  sendCsv(res, `laporan-${dataset}-${stamp}.csv`, config.columns, rows);
+  return { dataset, config, rows, stamp };
+}
+
+router.get('/export.csv', asyncRoute(async (req, res) => {
+  const { dataset, config, rows, stamp } = await resolveExport(req);
+  sendCsv(res, `laporan-${dataset}-${stamp}.csv`, config.columns, csvRows(dataset, rows));
+}));
+
+router.get('/export.xls', asyncRoute(async (req, res) => {
+  const { dataset, config, rows, stamp } = await resolveExport(req);
+  sendXls(res, `laporan-${dataset}-${stamp}.xls`, config.columns, rows, `Laporan ${dataset}`);
 }));
 
 export default router;

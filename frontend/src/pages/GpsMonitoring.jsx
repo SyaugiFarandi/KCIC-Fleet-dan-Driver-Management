@@ -141,6 +141,7 @@ export default function GpsMonitoring() {
   const canWrite = can(user?.role, 'gps:write');
 
   const [positions, setPositions] = useState([]);
+  const [liveFeed, setLiveFeed] = useState('connecting');
   const [counts, setCounts] = useState(null);
   const [generatedAt, setGeneratedAt] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -283,11 +284,64 @@ export default function GpsMonitoring() {
 
   useEffect(() => {
     loadPositions();
-    const timer = setInterval(() => {
-      if (!document.hidden) loadPositions(true);
-    }, 8000);
-    return () => clearInterval(timer);
-  }, [loadPositions]);
+    let source = null;
+    let pollTimer = null;
+
+    const applyPayload = (data) => {
+      setPositions(data.items);
+      setCounts(data.counts);
+      setGeneratedAt(data.generatedAt);
+      setError(null);
+      setLoading(false);
+    };
+
+    const stopPolling = () => {
+      if (pollTimer) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
+    };
+
+    const startPolling = () => {
+      if (pollTimer) return;
+      pollTimer = setInterval(() => {
+        if (!document.hidden) loadPositions(true);
+      }, 8000);
+    };
+
+    if (typeof EventSource === 'undefined') {
+      setLiveFeed('polling');
+      startPolling();
+      return stopPolling;
+    }
+
+    const params = new URLSearchParams({
+      status: filters.status === 'ALL' ? '' : filters.status,
+      ownership: filters.ownership === 'ALL' ? '' : filters.ownership,
+      driverId: filters.driverId || '',
+      q: filters.q || '',
+    });
+
+    source = new EventSource(`/api/gps/stream?${params.toString()}`, { withCredentials: true });
+    source.addEventListener('positions', (event) => {
+      try {
+        applyPayload(JSON.parse(event.data));
+        setLiveFeed('live');
+        stopPolling();
+      } catch {
+        /* ignore malformed frame */
+      }
+    });
+    source.addEventListener('error', () => {
+      setLiveFeed('polling');
+      startPolling();
+    });
+
+    return () => {
+      source?.close();
+      stopPolling();
+    };
+  }, [loadPositions, filters]);
 
   useEffect(() => {
     loadOptions();
@@ -662,7 +716,8 @@ export default function GpsMonitoring() {
               <span><i className="gps-dot gps-dot-stopped" /> Berhenti</span>
               <span><i className="gps-dot gps-dot-offline" /> Offline</span>
               <span className="gps-legend-meta">
-                <Clock size={12} /> {generatedAt ? `diperbarui ${fmtTime(generatedAt)}` : '—'}
+                <Clock size={12} /> {generatedAt ? `diperbarui ${fmtTime(generatedAt)}` : '—'} ·{' '}
+                {liveFeed === 'live' ? 'stream langsung' : liveFeed === 'polling' ? 'polling 8 dtk' : 'menghubungkan...'}
               </span>
             </div>
           </div>

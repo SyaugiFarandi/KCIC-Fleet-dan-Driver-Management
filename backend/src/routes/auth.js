@@ -7,6 +7,8 @@ import { prisma } from '../db.js';
 import { HttpError, asyncRoute } from '../lib/http.js';
 import { requireAuth } from '../middleware/auth.js';
 import { writeAudit } from '../lib/audit.js';
+import { clearSessionCookie, setSessionCookie } from '../lib/session.js';
+import { DEFAULT_NOTIFICATION_PREFS, NOTIFICATION_TYPES, enabledNotificationTypes } from '../lib/notifications.js';
 
 const router = express.Router();
 
@@ -18,6 +20,10 @@ const loginSchema = z.object({
 const passwordSchema = z.object({
   currentPassword: z.string().min(1, 'Password saat ini wajib diisi'),
   newPassword: z.string().min(8, 'Password baru minimal 8 karakter'),
+});
+
+const preferencesSchema = z.object({
+  types: z.array(z.enum(NOTIFICATION_TYPES)).max(NOTIFICATION_TYPES.length),
 });
 
 const MAX_ATTEMPTS = 10;
@@ -58,6 +64,7 @@ function publicUser(user) {
     department: user.department,
     phone: user.phone,
     active: user.active,
+    notificationTypes: enabledNotificationTypes(user),
   };
 }
 
@@ -86,17 +93,30 @@ router.post(
       expiresIn: config.jwtExpiresIn,
     });
     await writeAudit({ userId: user.id, action: 'LOGIN', entity: 'User', entityId: user.id, detail: 'Login berhasil' });
+    setSessionCookie(res, token);
     res.json({ token, user: publicUser(user) });
   })
 );
 
 router.get('/me', requireAuth, asyncRoute(async (req, res) => {
-  res.json({ user: req.user });
+  res.json({ user: publicUser(req.user), preferences: { ...DEFAULT_NOTIFICATION_PREFS, types: enabledNotificationTypes(req.user) } });
 }));
 
 router.post('/logout', requireAuth, asyncRoute(async (req, res) => {
   await writeAudit({ userId: req.user.id, action: 'LOGOUT', entity: 'User', entityId: req.user.id, detail: 'Logout' });
+  clearSessionCookie(res);
   res.json({ ok: true });
+}));
+
+router.patch('/preferences', requireAuth, asyncRoute(async (req, res) => {
+  const { types } = preferencesSchema.parse(req.body);
+  const updated = await prisma.user.update({
+    where: { id: req.user.id },
+    data: { notificationPrefs: { types } },
+    select: { id: true, name: true, email: true, role: true, department: true, phone: true, active: true, notificationPrefs: true },
+  });
+  await writeAudit({ userId: req.user.id, action: 'UPDATE_PREFERENCES', entity: 'User', entityId: req.user.id, detail: 'Preferensi notifikasi diperbarui' });
+  res.json({ user: publicUser(updated), preferences: { types: enabledNotificationTypes(updated) } });
 }));
 
 router.patch('/password', requireAuth, asyncRoute(async (req, res) => {

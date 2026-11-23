@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="KCIC Fleet">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#9c2732" />
+      <stop offset="1" stop-color="#5b1119" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)" />
+  <path d="M118 312c0-16 4-32 12-46l34-60c10-18 29-29 50-29h84c21 0 40 11 50 29l34 60c8 14 12 30 12 46v38c0 9-7 16-16 16h-18c-9 0-16-7-16-16v-14H168v14c0 9-7 16-16 16h-18c-9 0-16-7-16-16z" fill="#ffffff" />
+  <rect x="186" y="192" width="140" height="52" rx="12" fill="#831d27" opacity="0.85" />
+  <circle cx="196" cy="330" r="24" fill="#831d27" />
+  <circle cx="316" cy="330" r="24" fill="#831d27" />
+  <path d="M150 418h212" stroke="#ffffff" stroke-width="18" stroke-linecap="round" opacity="0.9" />
+</svg>

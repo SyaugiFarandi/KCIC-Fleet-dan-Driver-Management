@@ -1,5 +1,6 @@
 import { prisma } from '../db.js';
 import { ROLES } from './permissions.js';
+import { publishNotification } from './events.js';
 
 const STAFF_ROLES = ROLES.filter((role) => role !== 'DRIVER' && role !== 'CREW_EMPLOYEE');
 
@@ -10,6 +11,16 @@ export const NOTIFICATION_TYPE_LABELS = {
   DOCUMENT: 'Dokumen',
   MAINTENANCE_DUE: 'Jadwal perawatan',
 };
+
+export const NOTIFICATION_TYPES = Object.keys(NOTIFICATION_TYPE_LABELS);
+
+export const DEFAULT_NOTIFICATION_PREFS = { types: NOTIFICATION_TYPES };
+
+export function enabledNotificationTypes(user) {
+  const types = user?.notificationPrefs?.types;
+  if (!Array.isArray(types)) return NOTIFICATION_TYPES;
+  return types.filter((type) => NOTIFICATION_TYPES.includes(type));
+}
 
 const GPS_ALERT_EVENT_TYPES = new Set([
   'OVERSPEED',
@@ -26,7 +37,9 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 export async function notify({ userId, type, title, message, link = null }) {
   if (!userId) return null;
   try {
-    return await prisma.notification.create({ data: { userId, type, title, message, link } });
+    const item = await prisma.notification.create({ data: { userId, type, title, message, link } });
+    publishNotification([userId]);
+    return item;
   } catch (err) {
     console.error('[notify] failed to create notification', type, err.message);
     return null;
@@ -43,6 +56,7 @@ export async function notifyStaff({ type, title, message, link = null }) {
     await prisma.notification.createMany({
       data: staff.map((user) => ({ userId: user.id, type, title, message, link })),
     });
+    publishNotification(staff.map((user) => user.id));
     return staff.length;
   } catch (err) {
     console.error('[notify] failed to broadcast staff notification', type, err.message);
@@ -156,6 +170,7 @@ export async function refreshUserNotifications(user) {
   if (!pending.length) return 0;
   try {
     await prisma.notification.createMany({ data: pending });
+    publishNotification([user.id]);
     return pending.length;
   } catch (err) {
     console.error('[notify] failed to create reminder sweep', err.message);

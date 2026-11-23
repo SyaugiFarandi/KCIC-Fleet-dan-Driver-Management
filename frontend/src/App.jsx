@@ -1,5 +1,14 @@
-import { useEffect, useMemo, useState } from 'react';
-import { BrowserRouter, NavLink, Navigate, Outlet, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  BrowserRouter,
+  NavLink,
+  Navigate,
+  Outlet,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+} from 'react-router-dom';
 import {
   BarChart3,
   Bell,
@@ -10,34 +19,40 @@ import {
   LogOut,
   MapPin,
   Menu,
+  Moon,
   Route as RouteIcon,
   Satellite,
+  Search,
   ShieldCheck,
+  Sun,
   Truck,
   UserCircle,
   Users,
   Wrench,
   X,
 } from 'lucide-react';
+import CommandPalette, { ShortcutsOverlay } from './CommandPalette.jsx';
 import NotificationBell from './NotificationBell.jsx';
 import { AuthProvider, useAuth } from './auth.jsx';
 import { can, isStaff, roleLabel } from './permissions.js';
-import { ConfirmProvider, Spinner, ToastProvider } from './ui.jsx';
-import Login from './pages/Login.jsx';
-import Dashboard from './pages/Dashboard.jsx';
-import Bookings from './pages/Bookings.jsx';
-import Trips from './pages/Trips.jsx';
-import GpsMonitoring from './pages/GpsMonitoring.jsx';
-import Vehicles from './pages/Vehicles.jsx';
-import Drivers from './pages/Drivers.jsx';
-import Vendors from './pages/Vendors.jsx';
-import RoutesPage from './pages/RoutesPage.jsx';
-import Maintenance from './pages/Maintenance.jsx';
-import Audit from './pages/Audit.jsx';
-import UsersPage from './pages/Users.jsx';
-import Profile from './pages/Profile.jsx';
-import Reports from './pages/Reports.jsx';
-import Notifications from './pages/Notifications.jsx';
+import { ConfirmProvider, OfflineBanner, Spinner, ToastProvider } from './ui.jsx';
+
+const Login = lazy(() => import('./pages/Login.jsx'));
+const Dashboard = lazy(() => import('./pages/Dashboard.jsx'));
+const Bookings = lazy(() => import('./pages/Bookings.jsx'));
+const Trips = lazy(() => import('./pages/Trips.jsx'));
+const GpsMonitoring = lazy(() => import('./pages/GpsMonitoring.jsx'));
+const Vehicles = lazy(() => import('./pages/Vehicles.jsx'));
+const Drivers = lazy(() => import('./pages/Drivers.jsx'));
+const Vendors = lazy(() => import('./pages/Vendors.jsx'));
+const RoutesPage = lazy(() => import('./pages/RoutesPage.jsx'));
+const Maintenance = lazy(() => import('./pages/Maintenance.jsx'));
+const Audit = lazy(() => import('./pages/Audit.jsx'));
+const UsersPage = lazy(() => import('./pages/Users.jsx'));
+const Profile = lazy(() => import('./pages/Profile.jsx'));
+const Reports = lazy(() => import('./pages/Reports.jsx'));
+const Notifications = lazy(() => import('./pages/Notifications.jsx'));
+const NotFound = lazy(() => import('./pages/NotFound.jsx'));
 
 const NAV_SECTIONS = [
   {
@@ -66,6 +81,18 @@ const NAV_SECTIONS = [
   },
 ];
 
+function useTheme() {
+  const [theme, setTheme] = useState(() => localStorage.getItem('fleet_theme') || 'light');
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem('fleet_theme', theme);
+    const meta = document.querySelector('meta[name="color-scheme"]');
+    if (meta) meta.setAttribute('content', theme === 'dark' ? 'dark' : 'light');
+  }, [theme]);
+  const toggle = useCallback(() => setTheme((value) => (value === 'dark' ? 'light' : 'dark')), []);
+  return { theme, toggle };
+}
+
 function FullPageLoader() {
   return (
     <div className="full-loading">
@@ -76,6 +103,21 @@ function FullPageLoader() {
   );
 }
 
+function PageFallback() {
+  return (
+    <div className="panel page-skeleton" role="status" aria-live="polite">
+      <span className="skeleton skeleton-title" />
+      <span className="skeleton skeleton-text" />
+      <span className="skeleton skeleton-text" />
+      <span className="skeleton skeleton-block" />
+    </div>
+  );
+}
+
+function LazyPage({ children }) {
+  return <Suspense fallback={<PageFallback />}>{children}</Suspense>;
+}
+
 function Guard({ allow, children }) {
   const { user } = useAuth();
   if (typeof allow === 'function' && !allow(user?.role)) return <NoAccess />;
@@ -84,12 +126,50 @@ function Guard({ allow, children }) {
 
 function NoAccess() {
   return (
-    <div className="panel">
+    <section className="panel fallback-panel">
+      <span className="fallback-code">403</span>
       <h3>Akses ditolak</h3>
-      <p className="muted">Role Anda tidak memiliki izin untuk membuka halaman ini. Pembatasan juga ditegakkan di API backend.</p>
+      <p className="muted">
+        Role Anda tidak memiliki izin untuk membuka halaman ini. Pembatasan yang sama juga ditegakkan di API backend, bukan hanya di antarmuka.
+      </p>
       <NavLink className="btn btn-primary" to="/">
         Kembali ke Dashboard
       </NavLink>
+    </section>
+  );
+}
+
+function SessionExpiredModal() {
+  const { sessionExpired, dismissSessionExpired } = useAuth();
+  const navigate = useNavigate();
+  if (!sessionExpired) return null;
+  return (
+    <div className="modal-overlay" role="presentation">
+      <div className="modal session-modal" role="alertdialog" aria-modal="true" aria-labelledby="session-title">
+        <div className="modal-head">
+          <div>
+            <h3 id="session-title">Sesi Anda telah berakhir</h3>
+            <p>Demi keamanan, sesi login berakhir otomatis. Silakan masuk kembali untuk melanjutkan.</p>
+          </div>
+        </div>
+        <div className="modal-body">
+          <p className="muted">
+            Sesi disimpan sebagai cookie httpOnly, sehingga token tidak dapat dibaca JavaScript. Data yang belum tersimpan perlu diisi ulang.
+          </p>
+        </div>
+        <div className="modal-foot">
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => {
+              dismissSessionExpired();
+              navigate('/login', { replace: true });
+            }}
+          >
+            Masuk lagi
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -98,7 +178,10 @@ function AppShell() {
   const { user, logout, bootstrapping } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
+  const { theme, toggle: toggleTheme } = useTheme();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
 
   useEffect(() => {
     setSidebarOpen(false);
@@ -113,6 +196,33 @@ function AppShell() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [sidebarOpen]);
+
+  useEffect(() => {
+    const onKey = (event) => {
+      const target = event.target;
+      const typing = target instanceof HTMLElement && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable);
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        setPaletteOpen(true);
+        return;
+      }
+      if (event.key === '?' && !typing) {
+        event.preventDefault();
+        setShortcutsOpen(true);
+        return;
+      }
+      if (event.altKey && event.key.toLowerCase() === 'd') {
+        event.preventDefault();
+        toggleTheme();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [toggleTheme]);
+
+  useEffect(() => {
+    if (new URLSearchParams(location.search).get('shortcuts') === '1') setShortcutsOpen(true);
+  }, [location.search]);
 
   const activeItem = useMemo(() => {
     const items = NAV_SECTIONS.flatMap((section) => section.items);
@@ -129,6 +239,15 @@ function AppShell() {
     ...section,
     items: section.items.filter((item) => item.visible(user.role)),
   })).filter((section) => section.items.length > 0);
+
+  const bottomItems = [
+    { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
+    { to: '/bookings', label: 'Booking', icon: ClipboardList },
+    ...(isStaff(user.role) || user.role === 'DRIVER' ? [{ to: '/trips', label: 'Trip', icon: RouteIcon }] : []),
+    ...(can(user.role, 'gps:read') ? [{ to: '/gps', label: 'GPS', icon: Satellite }] : []),
+    { to: '/notifications', label: 'Notifikasi', icon: Bell },
+    { to: '/profile', label: 'Profil', icon: UserCircle },
+  ].slice(0, 5);
 
   const handleLogout = async () => {
     await logout();
@@ -208,7 +327,21 @@ function AppShell() {
             </div>
           </div>
           <div className="topbar-right">
+            <button type="button" className="palette-trigger" onClick={() => setPaletteOpen(true)} aria-label="Buka pencarian dan aksi (Ctrl K)">
+              <Search size={15} />
+              <span>Cari atau aksi…</span>
+              <kbd>Ctrl K</kbd>
+            </button>
             <NotificationBell />
+            <button
+              type="button"
+              className="icon-btn"
+              onClick={toggleTheme}
+              aria-label={theme === 'dark' ? 'Gunakan tema terang' : 'Gunakan tema gelap'}
+              title="Ubah tema (Alt + D)"
+            >
+              {theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}
+            </button>
             <span className="env-pill">
               <i /> Demo
             </span>
@@ -219,10 +352,24 @@ function AppShell() {
           </div>
         </header>
 
+        <OfflineBanner />
+
         <main className="content" id="main-content" tabIndex={-1}>
           <Outlet />
         </main>
+
+        <nav className="bottom-nav" aria-label="Navigasi bawah">
+          {bottomItems.map((item) => (
+            <NavLink key={item.to} to={item.to} end={item.end} className={({ isActive }) => `bottom-nav-item ${isActive ? 'bottom-nav-active' : ''}`}>
+              <item.icon size={19} />
+              <span>{item.label}</span>
+            </NavLink>
+          ))}
+        </nav>
       </div>
+
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} role={user.role} onToggleTheme={toggleTheme} theme={theme} />
+      <ShortcutsOverlay open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
     </div>
   );
 }
@@ -231,7 +378,11 @@ function LoginRoute() {
   const { user, bootstrapping } = useAuth();
   if (bootstrapping) return <FullPageLoader />;
   if (user) return <Navigate to="/" replace />;
-  return <Login />;
+  return (
+    <LazyPage>
+      <Login />
+    </LazyPage>
+  );
 }
 
 export default function App() {
@@ -240,16 +391,17 @@ export default function App() {
       <AuthProvider>
         <ToastProvider>
           <ConfirmProvider>
+            <SessionExpiredModal />
             <Routes>
               <Route path="/login" element={<LoginRoute />} />
               <Route element={<AppShell />}>
-                <Route index element={<Dashboard />} />
-                <Route path="bookings" element={<Bookings />} />
+                <Route index element={<LazyPage><Dashboard /></LazyPage>} />
+                <Route path="bookings" element={<LazyPage><Bookings /></LazyPage>} />
                 <Route
                   path="trips"
                   element={
                     <Guard allow={(role) => isStaff(role) || role === 'DRIVER'}>
-                      <Trips />
+                      <LazyPage><Trips /></LazyPage>
                     </Guard>
                   }
                 />
@@ -257,7 +409,7 @@ export default function App() {
                   path="gps"
                   element={
                     <Guard allow={(role) => can(role, 'gps:read')}>
-                      <GpsMonitoring />
+                      <LazyPage><GpsMonitoring /></LazyPage>
                     </Guard>
                   }
                 />
@@ -265,7 +417,7 @@ export default function App() {
                   path="vehicles"
                   element={
                     <Guard allow={(role) => can(role, 'vehicles:read')}>
-                      <Vehicles />
+                      <LazyPage><Vehicles /></LazyPage>
                     </Guard>
                   }
                 />
@@ -273,7 +425,7 @@ export default function App() {
                   path="drivers"
                   element={
                     <Guard allow={(role) => can(role, 'drivers:read')}>
-                      <Drivers />
+                      <LazyPage><Drivers /></LazyPage>
                     </Guard>
                   }
                 />
@@ -281,7 +433,7 @@ export default function App() {
                   path="vendors"
                   element={
                     <Guard allow={(role) => can(role, 'vendors:read')}>
-                      <Vendors />
+                      <LazyPage><Vendors /></LazyPage>
                     </Guard>
                   }
                 />
@@ -289,7 +441,7 @@ export default function App() {
                   path="routes"
                   element={
                     <Guard allow={(role) => can(role, 'routes:read')}>
-                      <RoutesPage />
+                      <LazyPage><RoutesPage /></LazyPage>
                     </Guard>
                   }
                 />
@@ -297,7 +449,7 @@ export default function App() {
                   path="maintenance"
                   element={
                     <Guard allow={(role) => can(role, 'maintenance:read')}>
-                      <Maintenance />
+                      <LazyPage><Maintenance /></LazyPage>
                     </Guard>
                   }
                 />
@@ -305,7 +457,7 @@ export default function App() {
                   path="audit"
                   element={
                     <Guard allow={(role) => can(role, 'audit:read')}>
-                      <Audit />
+                      <LazyPage><Audit /></LazyPage>
                     </Guard>
                   }
                 />
@@ -313,7 +465,7 @@ export default function App() {
                   path="reports"
                   element={
                     <Guard allow={(role) => can(role, 'reports:read')}>
-                      <Reports />
+                      <LazyPage><Reports /></LazyPage>
                     </Guard>
                   }
                 />
@@ -321,13 +473,13 @@ export default function App() {
                   path="users"
                   element={
                     <Guard allow={(role) => can(role, 'users:manage')}>
-                      <UsersPage />
+                      <LazyPage><UsersPage /></LazyPage>
                     </Guard>
                   }
                 />
-                <Route path="notifications" element={<Notifications />} />
-                <Route path="profile" element={<Profile />} />
-                <Route path="*" element={<Navigate to="/" replace />} />
+                <Route path="notifications" element={<LazyPage><Notifications /></LazyPage>} />
+                <Route path="profile" element={<LazyPage><Profile /></LazyPage>} />
+                <Route path="*" element={<LazyPage><NotFound /></LazyPage>} />
               </Route>
             </Routes>
           </ConfirmProvider>

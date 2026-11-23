@@ -8,7 +8,7 @@ import { assertTransition, TRIP_TRANSITIONS, TRIP_STATUS_LABELS } from '../lib/w
 import { availabilityFor, assertAssignable } from '../lib/assignments.js';
 import { refreshDriverAvailability, refreshVehicleStatus } from '../lib/resourceStatus.js';
 import { notify } from '../lib/notifications.js';
-import { TRIP_CHECKLIST_ITEMS } from '../lib/checklist.js';
+import { TRIP_CHECKLIST_ITEMS, checklistItemsFor } from '../lib/checklist.js';
 
 const router = express.Router();
 
@@ -139,7 +139,14 @@ router.get('/checklist-template', asyncRoute(async (req, res) => {
   if (!can(req.user.role, 'trips:read:all') && req.user.role !== 'DRIVER') {
     throw new HttpError(403, 'Anda tidak memiliki akses ke checklist perjalanan');
   }
-  res.json({ items: TRIP_CHECKLIST_ITEMS });
+  const vehicleId = req.query.vehicleId ? String(req.query.vehicleId) : null;
+  if (vehicleId) {
+    const vehicle = await prisma.vehicle.findUnique({ where: { id: vehicleId }, select: { checklistTemplate: true } });
+    if (!vehicle) throw new HttpError(404, 'Kendaraan tidak ditemukan');
+    const items = checklistItemsFor(vehicle);
+    return res.json({ items, source: vehicle.checklistTemplate?.items?.length ? 'VEHICLE' : 'DEFAULT' });
+  }
+  res.json({ items: TRIP_CHECKLIST_ITEMS, source: 'DEFAULT' });
 }));
 
 const checklistSchema = z.object({
@@ -151,7 +158,7 @@ router.patch('/:id/checklist', asyncRoute(async (req, res) => {
   const { items, note } = checklistSchema.parse(req.body);
   const trip = await prisma.trip.findUnique({
     where: { id: req.params.id },
-    include: { driver: true, booking: true },
+    include: { driver: true, booking: true, vehicle: { select: { checklistTemplate: true } } },
   });
   if (!trip) throw new HttpError(404, 'Trip tidak ditemukan');
 
@@ -163,10 +170,11 @@ router.patch('/:id/checklist', asyncRoute(async (req, res) => {
     throw new HttpError(409, 'Checklist trip yang sudah selesai/dibatalkan tidak dapat diubah');
   }
 
-  const normalized = TRIP_CHECKLIST_ITEMS.map((template) => ({
-    key: template.key,
-    label: template.label,
-    checked: Boolean(items.find((item) => item.key === template.key)?.checked),
+  const template = checklistItemsFor(trip.vehicle);
+  const normalized = template.map((item) => ({
+    key: item.key,
+    label: item.label,
+    checked: Boolean(items.find((entry) => entry.key === item.key)?.checked),
   }));
   const checkedCount = normalized.filter((item) => item.checked).length;
   const checklist = {
@@ -356,7 +364,7 @@ router.patch('/:id/status', asyncRoute(async (req, res) => {
         .filter((item) => item?.checked)
         .map((item) => item.key)
     );
-    const missing = TRIP_CHECKLIST_ITEMS.filter((item) => !checkedKeys.has(item.key));
+    const missing = checklistItemsFor(trip.vehicle).filter((item) => !checkedKeys.has(item.key));
     if (missing.length) {
       throw new HttpError(409, `Checklist pra-perjalanan belum lengkap (${missing.length} item): ${missing.map((item) => item.label).join(', ')}`);
     }

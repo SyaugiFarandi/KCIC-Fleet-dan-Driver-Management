@@ -85,6 +85,7 @@ model User {
   department    String?
   phone         String?
   active        Boolean   @default(true)
+  notificationPrefs Json?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
@@ -129,6 +130,7 @@ model Vehicle {
   lastServiceAt DateTime?
   stnkExpiry      DateTime?
   insuranceExpiry DateTime?
+  checklistTemplate Json?
   notes         String?
   vendorId      String?
   vendor        Vendor?       @relation(fields: [vendorId], references: [id])

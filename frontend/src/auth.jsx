@@ -1,38 +1,38 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { api, clearSession, getStoredUser, getToken, setUnauthorizedHandler, storeSession } from './api.js';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { api, clearSession, getStoredUser, setUnauthorizedHandler, storeUser } from './api.js';
 
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
-  const [token, setToken] = useState(() => getToken());
   const [user, setUser] = useState(() => getStoredUser());
-  const [bootstrapping, setBootstrapping] = useState(Boolean(getToken()));
+  const [bootstrapping, setBootstrapping] = useState(true);
+  const [sessionExpired, setSessionExpired] = useState(false);
+  const userRef = useRef(user);
+  userRef.current = user;
 
   useEffect(() => {
     setUnauthorizedHandler(() => {
-      setToken('');
+      if (userRef.current) setSessionExpired(true);
       setUser(null);
+      storeUser(null);
     });
   }, []);
 
   useEffect(() => {
     let cancelled = false;
-    if (!token) {
-      setBootstrapping(false);
-      return undefined;
-    }
     (async () => {
       try {
-        const result = await api('/auth/me');
+        const result = await api('/auth/me', { suppressAuthError: true });
         if (!cancelled) {
           setUser(result.user);
-          storeSession(token, result.user);
+          storeUser(result.user);
+          setSessionExpired(false);
         }
       } catch (error) {
         if (!cancelled && error.status === 401) {
-          clearSession();
-          setToken('');
+          if (userRef.current) setSessionExpired(true);
           setUser(null);
+          clearSession();
         }
       } finally {
         if (!cancelled) setBootstrapping(false);
@@ -41,13 +41,13 @@ export function AuthProvider({ children }) {
     return () => {
       cancelled = true;
     };
-  }, [token]);
+  }, []);
 
   const login = useCallback(async (email, password) => {
     const result = await api('/auth/login', { method: 'POST', body: { email, password } });
-    storeSession(result.token, result.user);
-    setToken(result.token);
+    storeUser(result.user);
     setUser(result.user);
+    setSessionExpired(false);
     return result.user;
   }, []);
 
@@ -55,23 +55,32 @@ export function AuthProvider({ children }) {
     try {
       await api('/auth/logout', { method: 'POST' });
     } catch {
-      /* token may already be invalid */
+      /* session may already be gone */
     }
     clearSession();
-    setToken('');
     setUser(null);
+    setSessionExpired(false);
   }, []);
 
   const refreshUser = useCallback(async () => {
     const result = await api('/auth/me');
     setUser(result.user);
-    storeSession(getToken(), result.user);
+    storeUser(result.user);
     return result.user;
   }, []);
 
+  const updatePreferences = useCallback(async (types) => {
+    const result = await api('/auth/preferences', { method: 'PATCH', body: { types } });
+    setUser(result.user);
+    storeUser(result.user);
+    return result.user;
+  }, []);
+
+  const dismissSessionExpired = useCallback(() => setSessionExpired(false), []);
+
   const value = useMemo(
-    () => ({ token, user, bootstrapping, login, logout, refreshUser }),
-    [token, user, bootstrapping, login, logout, refreshUser]
+    () => ({ user, bootstrapping, sessionExpired, login, logout, refreshUser, updatePreferences, dismissSessionExpired }),
+    [user, bootstrapping, sessionExpired, login, logout, refreshUser, updatePreferences, dismissSessionExpired]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

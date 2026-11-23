@@ -1,0 +1,32 @@
+{
+  "name": "KCIC Fleet & Driver Management",
+  "short_name": "KCIC Fleet",
+  "description": "Aplikasi internal pengelolaan armada, driver, booking, perjalanan, monitoring GPS demo, dan perawatan kendaraan.",
+  "lang": "id",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#f4f6f9",
+  "theme_color": "#831d27",
+  "categories": ["business", "productivity"],
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-maskable.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    { "name": "Buat Booking", "short_name": "Booking", "url": "/bookings?new=1" },
+    { "name": "Perjalanan", "short_name": "Trip", "url": "/trips" },
+    { "name": "GPS Monitoring", "short_name": "GPS", "url": "/gps" }
+  ]
+}

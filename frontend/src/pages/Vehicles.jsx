@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { api, apiDelete, apiPatch, apiPost } from '../api.js';
 import { useAuth } from '../auth.jsx';
@@ -14,6 +15,7 @@ import {
   SearchBox,
   useConfirm,
   useToast,
+  useUnsavedGuard,
 } from '../ui.jsx';
 
 const emptyForm = () => ({
@@ -31,6 +33,7 @@ const emptyForm = () => ({
   stnkExpiry: '',
   insuranceExpiry: '',
   notes: '',
+  checklist: '',
   status: 'AVAILABLE',
 });
 
@@ -58,7 +61,11 @@ export default function Vehicles() {
   const [filters, setFilters] = useState({ q: '', status: '', ownership: '' });
   const [modal, setModal] = useState(null);
   const [form, setForm] = useState(emptyForm());
+  const [formBaseline, setFormBaseline] = useState(null);
+  const [formErrors, setFormErrors] = useState({});
   const [busy, setBusy] = useState(false);
+  const deleteTimers = useRef(new Map());
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const canWrite = can(user.role, 'vehicles:write');
   const canDelete = can(user.role, 'vehicles:delete');
@@ -84,6 +91,24 @@ export default function Vehicles() {
     load();
   }, [load]);
 
+  useEffect(() => {
+    if (searchParams.get('new') !== '1') return;
+    const next = emptyForm();
+    setForm(next);
+    setFormBaseline(next);
+    setFormErrors({});
+    setModal({ type: 'create' });
+    setSearchParams({}, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(
+    () => () => {
+      deleteTimers.current.forEach((timer) => window.clearTimeout(timer));
+    },
+    []
+  );
+
   const filtered = useMemo(() => {
     const q = filters.q.trim().toLowerCase();
     return items.filter((vehicle) => {
@@ -98,12 +123,15 @@ export default function Vehicles() {
   }, [items, filters]);
 
   const openCreate = () => {
-    setForm(emptyForm());
+    const next = emptyForm();
+    setForm(next);
+    setFormBaseline(next);
+    setFormErrors({});
     setModal({ type: 'create' });
   };
 
   const openEdit = (vehicle) => {
-    setForm({
+    const next = {
       plateNumber: vehicle.plateNumber,
       brand: vehicle.brand,
       model: vehicle.model,
@@ -118,24 +146,60 @@ export default function Vehicles() {
       stnkExpiry: vehicle.stnkExpiry ? vehicle.stnkExpiry.slice(0, 10) : '',
       insuranceExpiry: vehicle.insuranceExpiry ? vehicle.insuranceExpiry.slice(0, 10) : '',
       notes: vehicle.notes || '',
+      checklist: (vehicle.checklistTemplate?.items || []).join('\n'),
       status: vehicle.status,
-    });
+    };
+    setForm(next);
+    setFormBaseline(next);
+    setFormErrors({});
     setModal({ type: 'edit', vehicle });
+  };
+
+  const formDirty = Boolean(modal) && Boolean(formBaseline) && JSON.stringify(form) !== JSON.stringify(formBaseline);
+  useUnsavedGuard(formDirty);
+
+  const closeFormModal = async () => {
+    if (formDirty) {
+      const ok = await confirm({
+        title: 'Tutup formulir kendaraan?',
+        message: 'Perubahan yang belum disimpan akan hilang.',
+        confirmLabel: 'Tutup tanpa simpan',
+        tone: 'danger',
+      });
+      if (!ok) return;
+    }
+    setModal(null);
   };
 
   const submit = async (event) => {
     event.preventDefault();
-    if (form.ownership === 'VENDOR' && !form.vendorId) {
-      toast.error('Pilih vendor untuk kendaraan milik vendor.');
-      return;
+    const errors = {};
+    if (!form.plateNumber?.trim() || form.plateNumber.trim().length < 3) errors.plateNumber = 'Nomor polisi minimal 3 karakter.';
+    if (!form.category?.trim()) errors.category = 'Kategori wajib diisi.';
+    if (!form.brand?.trim()) errors.brand = 'Merek wajib diisi.';
+    if (!form.model?.trim()) errors.model = 'Model wajib diisi.';
+    const capacity = Number(form.capacity);
+    if (!Number.isInteger(capacity) || capacity < 1 || capacity > 80) errors.capacity = 'Kapasitas harus antara 1 dan 80.';
+    if (form.ownership === 'VENDOR' && !form.vendorId) errors.vendorId = 'Pilih vendor untuk kendaraan milik vendor.';
+    const checklistItems = form.checklist
+      .split('\n')
+      .map((item) => item.trim())
+      .filter(Boolean);
+    if (checklistItems.some((item) => item.length < 3 || item.length > 120)) {
+      errors.checklist = 'Setiap item checklist harus 3–120 karakter.';
+    } else if (checklistItems.length > 20) {
+      errors.checklist = 'Maksimal 20 item checklist.';
     }
+    setFormErrors(errors);
+    if (Object.keys(errors).length) return;
+
     const editableStatus = modal.type === 'edit' && ['AVAILABLE', 'INACTIVE'].includes(modal.vehicle.status);
     const payload = {
       plateNumber: form.plateNumber.trim(),
       brand: form.brand.trim(),
       model: form.model.trim(),
       category: form.category.trim(),
-      capacity: Number(form.capacity),
+      capacity,
       ownership: form.ownership,
       vendorId: form.ownership === 'VENDOR' ? form.vendorId : null,
       year: form.year ? Number(form.year) : null,
@@ -145,6 +209,7 @@ export default function Vehicles() {
       stnkExpiry: form.stnkExpiry || null,
       insuranceExpiry: form.insuranceExpiry || null,
       notes: form.notes.trim() || null,
+      checklistItems,
       ...(editableStatus ? { status: form.status } : {}),
     };
     setBusy(true);
@@ -169,17 +234,35 @@ export default function Vehicles() {
     const ok = await confirm({
       title: 'Hapus kendaraan?',
       message: `Kendaraan ${vehicle.plateNumber} akan dihapus permanen.`,
+      detail: 'Penghapusan ditunda sekitar 8 detik; gunakan tombol “Urungkan” pada notifikasi jika berubah pikiran.',
       confirmLabel: 'Hapus',
       tone: 'danger',
     });
     if (!ok) return;
-    try {
-      await apiDelete(`/vehicles/${vehicle.id}`);
-      toast.success('Kendaraan dihapus.');
-      await load();
-    } catch (err) {
-      toast.error(err.message);
-    }
+    const snapshot = items;
+    setItems((current) => current.filter((item) => item.id !== vehicle.id));
+    const timer = window.setTimeout(async () => {
+      deleteTimers.current.delete(vehicle.id);
+      try {
+        await apiDelete(`/vehicles/${vehicle.id}`);
+        toast.info(`Kendaraan ${vehicle.plateNumber} dihapus permanen.`);
+      } catch (err) {
+        toast.error(err.message);
+        setItems(snapshot);
+      }
+    }, 8000);
+    deleteTimers.current.set(vehicle.id, timer);
+    toast.success(`Kendaraan ${vehicle.plateNumber} dihapus.`, {
+      action: {
+        label: 'Urungkan',
+        onClick: () => {
+          const pending = deleteTimers.current.get(vehicle.id);
+          if (pending) window.clearTimeout(pending);
+          deleteTimers.current.delete(vehicle.id);
+          setItems(snapshot);
+        },
+      },
+    });
   };
 
   const columns = [
@@ -309,11 +392,11 @@ export default function Vehicles() {
         <Modal
           title={modal.type === 'create' ? 'Tambah Kendaraan' : `Ubah ${modal.vehicle.plateNumber}`}
           subtitle="Status ASSIGNED dan MAINTENANCE dikelola otomatis oleh trip & maintenance."
-          onClose={() => setModal(null)}
+          onClose={closeFormModal}
           size="lg"
           footer={
             <>
-              <button type="button" className="btn btn-secondary" onClick={() => setModal(null)}>
+              <button type="button" className="btn btn-secondary" onClick={closeFormModal}>
                 Batal
               </button>
               <button type="submit" form="vehicle-form" className="btn btn-primary" disabled={busy}>
@@ -322,9 +405,9 @@ export default function Vehicles() {
             </>
           }
         >
-          <form id="vehicle-form" onSubmit={submit}>
+          <form id="vehicle-form" onSubmit={submit} noValidate>
             <div className="form-grid">
-              <Field label="Nomor Polisi">
+              <Field label="Nomor Polisi" error={formErrors.plateNumber}>
                 <input
                   required
                   minLength={3}
@@ -334,7 +417,7 @@ export default function Vehicles() {
                   placeholder="B 1234 KCX"
                 />
               </Field>
-              <Field label="Kategori">
+              <Field label="Kategori" error={formErrors.category}>
                 <input
                   required
                   value={form.category}
@@ -342,13 +425,13 @@ export default function Vehicles() {
                   placeholder="Minibus / Bus / MPV"
                 />
               </Field>
-              <Field label="Merek">
+              <Field label="Merek" error={formErrors.brand}>
                 <input required value={form.brand} onChange={(event) => setForm({ ...form, brand: event.target.value })} />
               </Field>
-              <Field label="Model">
+              <Field label="Model" error={formErrors.model}>
                 <input required value={form.model} onChange={(event) => setForm({ ...form, model: event.target.value })} />
               </Field>
-              <Field label="Kapasitas (orang)">
+              <Field label="Kapasitas (orang)" error={formErrors.capacity}>
                 <input
                   required
                   type="number"
@@ -365,7 +448,7 @@ export default function Vehicles() {
                 </select>
               </Field>
               {form.ownership === 'VENDOR' && (
-                <Field label="Vendor">
+                <Field label="Vendor" error={formErrors.vendorId}>
                   <select required value={form.vendorId} onChange={(event) => setForm({ ...form, vendorId: event.target.value })}>
                     <option value="">— Pilih vendor —</option>
                     {vendors.map((vendor) => (
@@ -421,6 +504,23 @@ export default function Vehicles() {
               )}
               <Field label="Catatan" className="span-2">
                 <textarea rows={2} value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} />
+              </Field>
+              <Field
+                label="Template Checklist Perjalanan"
+                className="span-2"
+                error={formErrors.checklist}
+                hint={
+                  formErrors.checklist
+                    ? undefined
+                    : 'Satu item per baris (maks. 20). Kosongkan untuk memakai checklist default sistem.'
+                }
+              >
+                <textarea
+                  rows={4}
+                  value={form.checklist}
+                  onChange={(event) => setForm({ ...form, checklist: event.target.value })}
+                  placeholder={'Tekanan ban\nLampu & klakson\nKebersihan kabin'}
+                />
               </Field>
             </div>
           </form>

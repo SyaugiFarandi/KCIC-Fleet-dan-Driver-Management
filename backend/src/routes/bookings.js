@@ -377,6 +377,73 @@ router.patch('/:id/cancel', asyncRoute(async (req, res) => {
   res.json(updated);
 }));
 
+router.patch('/series/:seriesId/cancel', asyncRoute(async (req, res) => {
+  const schema = z.object({ reason: z.string().trim().max(300).optional() });
+  const { reason } = schema.parse(req.body ?? {});
+
+  const bookings = await prisma.booking.findMany({
+    where: { seriesId: req.params.seriesId },
+    include: { trip: true },
+    orderBy: { departureAt: 'asc' },
+  });
+  if (!bookings.length) throw new HttpError(404, 'Seri booking tidak ditemukan');
+
+  const isApprover = can(req.user.role, 'bookings:decide');
+  if (!isApprover && bookings.some((booking) => booking.requesterId !== req.user.id)) {
+    throw new HttpError(403, 'Anda tidak berhak membatalkan seri booking ini');
+  }
+
+  const cancellable = bookings.filter(
+    (booking) =>
+      ['PENDING', 'APPROVED', 'ASSIGNED'].includes(booking.status) &&
+      !(booking.trip && ['PICKED_UP', 'IN_PROGRESS'].includes(booking.trip.status))
+  );
+  if (!cancellable.length) {
+    throw new HttpError(409, 'Tidak ada booking aktif yang dapat dibatalkan pada seri ini');
+  }
+
+  await prisma.$transaction(async (tx) => {
+    for (const booking of cancellable) {
+      if (booking.trip && ACTIVE_TRIP_STATUSES.includes(booking.trip.status)) {
+        await tx.trip.update({
+          where: { id: booking.trip.id },
+          data: { status: 'CANCELLED', cancelledAt: new Date(), notes: `Seri dibatalkan${reason ? `: ${reason}` : ''}` },
+        });
+        await tx.tripEvent.create({
+          data: { tripId: booking.trip.id, status: 'CANCELLED', note: reason || 'Seri booking dibatalkan', actorId: req.user.id },
+        });
+        await refreshVehicleStatus(tx, booking.trip.vehicleId);
+        await refreshDriverAvailability(tx, booking.trip.driverId);
+      }
+      await tx.booking.update({
+        where: { id: booking.id },
+        data: { status: 'CANCELLED', cancelledReason: reason || 'Dibatalkan seluruh seri' },
+      });
+    }
+  });
+
+  await writeAudit({
+    userId: req.user.id,
+    action: 'BOOKING_SERIES_CANCEL',
+    entity: 'Booking',
+    entityId: req.params.seriesId,
+    detail: `${bookings[0].code} — ${cancellable.length}/${bookings.length} jadwal dibatalkan${reason ? ` (${reason})` : ''}`,
+  });
+
+  const requesters = [...new Set(bookings.map((booking) => booking.requesterId))].filter((id) => id !== req.user.id);
+  for (const requesterId of requesters) {
+    await notify({
+      userId: requesterId,
+      type: 'BOOKING',
+      title: 'Seri booking dibatalkan',
+      message: `${cancellable.length} jadwal pada seri ${bookings[0].code} dibatalkan oleh staf${reason ? ` — ${reason}` : ''}.`,
+      link: '/bookings',
+    });
+  }
+
+  res.json({ ok: true, cancelled: cancellable.length, skipped: bookings.length - cancellable.length });
+}));
+
 router.delete('/:id', requirePermission('bookings:delete'), asyncRoute(async (req, res) => {
   const booking = await prisma.booking.findUnique({ where: { id: req.params.id }, include: { trip: true } });
   if (!booking) throw new HttpError(404, 'Booking tidak ditemukan');

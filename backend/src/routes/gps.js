@@ -42,8 +42,8 @@ function serializeDevice(device) {
   };
 }
 
-router.get('/positions', requirePermission('gps:read'), asyncRoute(async (req, res) => {
-  const { status, ownership, driverId, q } = req.query;
+async function buildPositions(query = {}) {
+  const { status, ownership, driverId, q } = query;
   const vehicles = await prisma.vehicle.findMany({
     include: {
       vendor: { select: { id: true, name: true } },
@@ -168,14 +168,62 @@ router.get('/positions', requirePermission('gps:read'), asyncRoute(async (req, r
     return true;
   });
 
-  res.json({
+  return {
     items,
     totalFiltered: items.length,
     counts,
     generatedAt: new Date(now).toISOString(),
     ...demoMeta(),
-  });
+  };
+}
+
+router.get('/positions', requirePermission('gps:read'), asyncRoute(async (req, res) => {
+  res.json(await buildPositions(req.query));
 }));
+
+const GPS_STREAM_INTERVAL_MS = 10000;
+const GPS_STREAM_HEARTBEAT_MS = 25000;
+
+router.get('/stream', requirePermission('gps:read'), async (req, res) => {
+  res.set({
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  res.flushHeaders();
+  res.write('retry: 15000\n\n');
+
+  let closed = false;
+
+  const send = async () => {
+    if (closed) return;
+    try {
+      const payload = await buildPositions(req.query);
+      if (closed) return;
+      res.write(`event: positions\ndata: ${JSON.stringify(payload)}\n\n`);
+    } catch (err) {
+      console.error('[sse] gps stream failed', err.message);
+      if (!closed) res.write('event: error\ndata: {"message":"Gagal memuat posisi armada"}\n\n');
+    }
+  };
+
+  const timer = setInterval(send, GPS_STREAM_INTERVAL_MS);
+  const heartbeat = setInterval(() => {
+    if (!closed) res.write(': ping\n\n');
+  }, GPS_STREAM_HEARTBEAT_MS);
+
+  const cleanup = () => {
+    if (closed) return;
+    closed = true;
+    clearInterval(timer);
+    clearInterval(heartbeat);
+  };
+
+  req.on('close', cleanup);
+  res.on('error', cleanup);
+  await send();
+});
 
 router.get('/options', requirePermission('gps:read'), asyncRoute(async (req, res) => {
   const [vehicles, drivers] = await Promise.all([

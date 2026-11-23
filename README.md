@@ -9,12 +9,15 @@ audit trail, role-based access control, and a DEMO GPS monitoring module.
 
 ## Stack
 
-- Frontend: React 18 + Vite 5, Leaflet 1.9 + OpenStreetMap (GPS map), custom CSS with
-  design tokens, visible focus states, skip link, focus-trapped modals and reduced-motion
-  support
-- Backend: Node.js 20+, Express 4, Prisma 5, zod validation, JWT + bcrypt
+- Frontend: React 18 + Vite 5 (lazy-loaded routes), Leaflet 1.9 + OpenStreetMap (GPS map),
+  custom CSS with design tokens, light/dark themes via `data-theme` tokens, visible focus
+  states, skip link, focus-trapped modals, reduced-motion support, installable PWA
+  (manifest + service worker with offline fallback)
+- Backend: Node.js 20+, Express 4, Prisma 5, zod validation, bcrypt, httpOnly cookie
+  session (Bearer token still accepted for API tests/tooling), Server-Sent Events for
+  live notifications and GPS positions
 - Database: PostgreSQL 16
-- Tests: node:test + supertest (54 automated API tests)
+- Tests: node:test + supertest (59 automated API tests)
 - Packaging: Docker Compose (PostgreSQL + API + Nginx-served frontend)
 
 ## Run with Docker (recommended)
@@ -80,10 +83,13 @@ npm run dev
 - **Dashboard** — live KPIs and recent activity from the database, scoped by role.
 - **Booking** — employee requests, approval/rejection with reason, cancellation; list view
   plus month **calendar view**, availability check (vehicles + drivers for a time window), and
-  **recurring series** (`DAILY`/`WEEKLY`, 2–8 occurrences, linked by `seriesId`).
+  **recurring series** (`DAILY`/`WEEKLY`, 2–8 occurrences, linked by `seriesId`) with a
+  **"Batalkan Seluruh Seri"** action, bulk approval of selected pending rows, saved
+  filters/column visibility, and delayed **undo delete**.
 - **Perjalanan (Trips)** — dispatch assignment, reassignment, status lifecycle
   (`SCHEDULED → DRIVER_ACCEPTED → PICKED_UP → IN_PROGRESS → COMPLETED`), timeline, and a
-  **pre-trip checklist** that the API enforces before `PICKED_UP`.
+  **pre-trip checklist** that the API enforces before `PICKED_UP`; each vehicle can carry its
+  own checklist template (defaults to the system template).
 - **GPS Monitoring** — Leaflet/OSM fleet map, vehicle side list, counters
   (moving/stopped/offline/deviations), filters (status, ownership, driver, free-text), vehicle
   detail (speed, position, destination, driver, device), **ETA to destination**, **route
@@ -93,12 +99,28 @@ npm run dev
   document expiry fields with "segera habis" badges (STNK + asuransi on vehicles, SIM on drivers).
 - **Maintenance** — planned → in progress → completed lifecycle, blocks assignment while busy.
 - **Laporan** — time-range analytics (utilization, approval rate, cost per trip, maintenance
-  cost, booking recap per department) with CSV export and print/PDF layout.
+  cost, booking recap per department) with **CSV and Excel (`.xls`) export** and print/PDF
+  layout.
 - **Notifikasi** — in-app notification center (topbar bell + page): booking decisions, trip
   assignments, GPS alerts, document reminders, and maintenance due; mark read / mark all.
+  The bell count updates live via SSE, and each user can switch off notification types in
+  **Profil → Preferensi Notifikasi** (applied server-side to the list and badge).
 - **Audit Log** — mutation trail for master data, bookings, trips, maintenance, geofences,
   GPS devices, and GPS event acknowledgements.
 - **Pengguna / Profil** — user administration and self-service password change.
+
+### Console UX
+
+- **Command palette** (`Ctrl/⌘ + K`) for jumping to pages and actions; `?` opens a keyboard
+  shortcut reference, `Alt + D` toggles the theme.
+- Skeleton loaders, empty states with a call to action, inline field validation, and an
+  unsaved-changes guard on create/edit forms.
+- Data tables with result counts, pagination, column visibility, saved filters per page.
+- Dark mode built on the same CSS tokens (brand colour preserved), persisted per browser.
+- On small screens a bottom navigation bar replaces the sidebar; the app is installable and
+  served by a service worker that falls back to an offline page (API calls are never cached).
+- Friendly 403/404 pages, an offline/network banner, and a session-expired modal that appears
+  when the cookie session ends.
 
 ## GPS module: DEMO simulator, not real tracking
 
@@ -127,16 +149,18 @@ receive HTTP 403), geofence/device changes and GPS event acknowledgement require
   with **0 CSP violations** (Google Fonts and OSM tiles explicitly allowed).
 - API CORS uses an allowlist. Override with `CORS_ORIGIN` (comma-separated origins) if you
   change host ports.
-- CSV exports are guarded against spreadsheet formula injection.
+- CSV and Excel exports are guarded against spreadsheet formula injection.
 - The API container runs as the non-root `node` user.
-- The JWT is kept in `localStorage` (local demo convenience). A production build should move
-  to httpOnly cookies, HTTPS/HSTS, and externalized secrets.
+- Login sets the JWT in an httpOnly, SameSite=Lax cookie (`fleet_session`; `Secure` when
+  `NODE_ENV=production`) so client JS cannot read it; CORS allows credentials only for the
+  configured origins. Bearer tokens remain supported for the API test suite and tooling.
+  Production still needs HTTPS/HSTS and externalized secrets.
 
 ## Tests
 
 ```bash
 cd backend
-npm test    # resets the fleet_test DB, seeds fixtures, runs 54 API tests
+npm test    # resets the fleet_test DB, seeds fixtures, runs 59 API tests
 ```
 
 Covers auth, RBAC (403 checks per role), booking/approval/dispatch/trip workflow,
@@ -144,7 +168,8 @@ maintenance lifecycle, master data CRUD + validation, users, GPS
 (positions/filters/detail/history/replay/events/geofence/device CRUD, demo metadata), and the
 enhancements: notifications (per-user scoping, read/mark-all, dedupe), reports summary + CSV,
 recurring booking series, trip checklist gate, document expiry fields, GPS ETA/deviation, and
-event acknowledgement (RBAC + audit).
+event acknowledgement (RBAC + audit), plus cookie-session auth, series-wide cancel, per-user
+notification preferences, vehicle checklist templates, and Excel export.
 
 Frontend production build: `cd frontend && npm run build`.
 
@@ -157,10 +182,11 @@ Frontend production build: `cd frontend && npm run build`.
 - Geofence enter/exit events are generated by the simulator for demonstration.
 - Notifications are in-app only (no email/WhatsApp/Telegram delivery); document and
   maintenance reminders are generated by a sweep on notification reads/polls.
-- Recurring bookings create independent bookings linked by `seriesId`; editing or cancelling
-  one occurrence does not cascade to the rest of the series.
-- The pre-trip checklist is a generic sample template enforced as a hard gate; per-vehicle
-  templates are not configurable yet.
+- Recurring bookings create independent bookings linked by `seriesId`; the series can be
+  cancelled as a whole from the booking detail, but editing one occurrence still does not
+  cascade to the rest of the series.
+- The pre-trip checklist is enforced as a hard gate; each vehicle can define its own template
+  (max 20 items, 3–120 characters each), otherwise the system default applies.
 - GPS ETA/deviation are derived from the simulator's own progress, labeled DEMO in the UI.
 - This is a functional local demo, not a production-approved KCIC system.
 

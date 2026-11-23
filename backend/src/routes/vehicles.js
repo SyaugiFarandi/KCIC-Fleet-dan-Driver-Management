@@ -5,8 +5,15 @@ import { HttpError, asyncRoute, pagination, paged } from '../lib/http.js';
 import { requirePermission } from '../lib/permissions.js';
 import { writeAudit } from '../lib/audit.js';
 import { ACTIVE_TRIP_STATUSES } from '../lib/workflow.js';
+import { CHECKLIST_MAX_ITEMS, normalizeChecklistItems } from '../lib/checklist.js';
 
 const router = express.Router();
+
+const checklistItemsSchema = z
+  .array(z.string().trim().min(3, 'Item checklist minimal 3 karakter').max(120, 'Item checklist maksimal 120 karakter'))
+  .max(CHECKLIST_MAX_ITEMS, `Maksimal ${CHECKLIST_MAX_ITEMS} item checklist`)
+  .optional()
+  .nullable();
 
 const baseSchema = {
   plateNumber: z.string().trim().min(3, 'Nomor polisi minimal 3 karakter').max(20),
@@ -24,6 +31,7 @@ const baseSchema = {
   notes: z.string().trim().max(500).optional().nullable(),
   vendorId: z.string().trim().optional().nullable(),
   status: z.enum(['AVAILABLE', 'INACTIVE']).optional(),
+  checklistItems: checklistItemsSchema,
 };
 
 const createSchema = z.object(baseSchema);
@@ -43,7 +51,14 @@ const updateSchema = z.object({
   notes: baseSchema.notes,
   vendorId: baseSchema.vendorId,
   status: baseSchema.status,
+  checklistItems: checklistItemsSchema,
 });
+
+function checklistTemplateFrom(items) {
+  if (!Array.isArray(items)) return null;
+  const normalized = normalizeChecklistItems(items);
+  return normalized.length ? { items: normalized } : null;
+}
 
 async function resolveVendor(ownership, vendorId) {
   if (ownership === 'VENDOR') {
@@ -108,6 +123,7 @@ router.post('/', requirePermission('vehicles:write'), asyncRoute(async (req, res
       notes: data.notes || null,
       status: data.status || 'AVAILABLE',
       vendorId,
+      checklistTemplate: checklistTemplateFrom(data.checklistItems),
     },
     include: { vendor: { select: { id: true, name: true } } },
   });
@@ -150,6 +166,7 @@ router.patch('/:id', requirePermission('vehicles:write'), asyncRoute(async (req,
       ...(data.insuranceExpiry !== undefined ? { insuranceExpiry: data.insuranceExpiry ?? null } : {}),
       ...(data.notes !== undefined ? { notes: data.notes || null } : {}),
       ...(data.status !== undefined ? { status: data.status } : {}),
+      ...(data.checklistItems !== undefined ? { checklistTemplate: checklistTemplateFrom(data.checklistItems) } : {}),
       vendorId,
     },
     include: { vendor: { select: { id: true, name: true } } },

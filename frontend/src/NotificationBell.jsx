@@ -27,6 +27,8 @@ export default function NotificationBell() {
   const [items, setItems] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [live, setLive] = useState(false);
+  const liveRef = useRef(false);
 
   const load = useCallback(async () => {
     try {
@@ -41,13 +43,41 @@ export default function NotificationBell() {
   useEffect(() => {
     load();
     const timer = window.setInterval(() => {
-      if (!document.hidden) load();
+      if (!document.hidden && !liveRef.current) load();
     }, 60_000);
     const onFocus = () => load();
     window.addEventListener('focus', onFocus);
     return () => {
       window.clearInterval(timer);
       window.removeEventListener('focus', onFocus);
+    };
+  }, [load]);
+
+  useEffect(() => {
+    if (typeof EventSource === 'undefined') return undefined;
+    const source = new EventSource('/api/notifications/stream', { withCredentials: true });
+    const onUnread = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (typeof data.unreadCount === 'number') setUnreadCount(data.unreadCount);
+        if (!document.hidden) load();
+      } catch {
+        /* ignore malformed payload */
+      }
+    };
+    source.addEventListener('unread', onUnread);
+    source.onopen = () => {
+      liveRef.current = true;
+      setLive(true);
+    };
+    source.onerror = () => {
+      liveRef.current = false;
+      setLive(false);
+    };
+    return () => {
+      source.removeEventListener('unread', onUnread);
+      source.close();
+      liveRef.current = false;
     };
   }, [load]);
 
@@ -90,7 +120,7 @@ export default function NotificationBell() {
         className={`icon-btn notif-bell-btn ${open ? 'notif-bell-open' : ''}`}
         onClick={() => setOpen((value) => !value)}
         aria-label={`Notifikasi (${unreadCount} belum dibaca)`}
-        title="Notifikasi"
+        title={live ? 'Notifikasi (pembaruan langsung)' : 'Notifikasi'}
       >
         <Bell size={17} />
         {unreadCount > 0 && <span className="notif-badge">{unreadCount > 99 ? '99+' : unreadCount}</span>}

@@ -35,6 +35,7 @@ export function buildApp() {
   app.use(
     cors({
       origin: config.corsOrigin === '*' ? true : config.corsOrigin.split(',').map((s) => s.trim()),
+      credentials: true,
     })
   );
   app.use(express.json({ limit: '1mb' }));

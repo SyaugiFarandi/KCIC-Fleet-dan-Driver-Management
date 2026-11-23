@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useId, useMemo, useRef, useState } from 'react';
-import { AlertCircle, CheckCircle2, Info, Loader2, Search, X } from 'lucide-react';
+import { AlertCircle, CheckCircle2, ChevronLeft, ChevronRight, Info, Loader2, Search, SlidersHorizontal, WifiOff, X } from 'lucide-react';
 import { fmtDateTime, statusLabel, statusTone } from './format.js';
 
 export function Spinner({ size = 18 }) {
@@ -45,12 +45,17 @@ export function StatCard({ label, value, hint, icon: Icon, onClick }) {
   return <div className="stat-card">{content}</div>;
 }
 
-export function Field({ label, hint, children, className = '' }) {
+export function Field({ label, hint, error, children, className = '' }) {
   return (
-    <label className={`field ${className}`.trim()}>
+    <label className={`field ${error ? 'field-invalid' : ''} ${className}`.trim()}>
       <span>{label}</span>
       {children}
-      {hint && <small>{hint}</small>}
+      {error && (
+        <small className="field-error" role="alert">
+          {error}
+        </small>
+      )}
+      {!error && hint && <small>{hint}</small>}
     </label>
   );
 }
@@ -90,43 +95,188 @@ export function SearchBox({ value, onChange, placeholder = 'Cari data...' }) {
   );
 }
 
-export function DataTable({ columns, rows, loading, empty = 'Belum ada data untuk ditampilkan.' }) {
+export function DataTable({
+  columns,
+  rows,
+  loading,
+  empty = 'Belum ada data untuk ditampilkan.',
+  emptyAction,
+  skeletonRows = 5,
+  pageSize = 0,
+  selectable = false,
+  selectedIds,
+  onSelect,
+  rowKey = (row, index) => row.id ?? index,
+}) {
+  const [page, setPage] = useState(0);
+  const total = rows.length;
+  const pageCount = pageSize > 0 ? Math.max(1, Math.ceil(total / pageSize)) : 1;
+  const safePage = Math.min(page, pageCount - 1);
+
+  useEffect(() => {
+    if (page !== safePage) setPage(safePage);
+  }, [page, safePage]);
+
+  const visibleRows = pageSize > 0 ? rows.slice(safePage * pageSize, safePage * pageSize + pageSize) : rows;
+  const selected = selectedIds instanceof Set ? selectedIds : new Set(selectedIds || []);
+  const pageKeys = visibleRows.map((row, index) => String(rowKey(row, safePage * pageSize + index)));
+  const allSelected = pageKeys.length > 0 && pageKeys.every((key) => selected.has(key));
+  const columnCount = columns.length + (selectable ? 1 : 0);
+
+  const toggleAll = () => {
+    if (!onSelect) return;
+    const next = new Set(selected);
+    if (allSelected) pageKeys.forEach((key) => next.delete(key));
+    else pageKeys.forEach((key) => next.add(key));
+    onSelect(next);
+  };
+
+  const toggleOne = (key) => {
+    if (!onSelect) return;
+    const next = new Set(selected);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    onSelect(next);
+  };
+
   return (
-    <div className="table-wrap" role="region" aria-label="Tabel data" tabIndex={0}>
-      <table>
-        <thead>
-          <tr>
-            {columns.map((column) => (
-              <th key={column.key}>{column.label}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {loading ? (
+    <div className="data-table">
+      <div className="table-wrap" role="region" aria-label="Tabel data" tabIndex={0}>
+        <table>
+          <thead>
             <tr>
-              <td colSpan={columns.length}>
-                <div className="table-state" role="status" aria-live="polite">
-                  <Spinner /> Memuat data...
-                </div>
-              </td>
+              {selectable && (
+                <th className="cell-select">
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    onChange={toggleAll}
+                    aria-label="Pilih semua baris di halaman ini"
+                    disabled={loading || visibleRows.length === 0}
+                  />
+                </th>
+              )}
+              {columns.map((column) => (
+                <th key={column.key} className={column.className}>
+                  {column.label}
+                </th>
+              ))}
             </tr>
-          ) : rows.length === 0 ? (
-            <tr>
-              <td colSpan={columns.length}>
-                <div className="table-state">{empty}</div>
-              </td>
-            </tr>
-          ) : (
-            rows.map((row, index) => (
-              <tr key={row.id ?? index}>
-                {columns.map((column) => (
-                  <td key={column.key}>{column.render ? column.render(row) : row[column.key] ?? '—'}</td>
-                ))}
+          </thead>
+          <tbody>
+            {loading ? (
+              Array.from({ length: skeletonRows }).map((_, rowIndex) => (
+                <tr key={`skeleton-${rowIndex}`} className="skeleton-row" aria-hidden="true">
+                  {selectable && <td className="cell-select" />}
+                  {columns.map((column, columnIndex) => (
+                    <td key={column.key}>
+                      <span className={`skeleton skeleton-text ${columnIndex === 0 ? 'skeleton-text-wide' : ''}`.trim()} />
+                    </td>
+                  ))}
+                </tr>
+              ))
+            ) : visibleRows.length === 0 ? (
+              <tr>
+                <td colSpan={columnCount}>
+                  <div className="table-state">
+                    <span>{empty}</span>
+                    {emptyAction && <div className="table-state-action">{emptyAction}</div>}
+                  </div>
+                </td>
               </tr>
-            ))
-          )}
-        </tbody>
-      </table>
+            ) : (
+              visibleRows.map((row, index) => {
+                const key = String(rowKey(row, safePage * pageSize + index));
+                return (
+                  <tr key={key} className={selected.has(key) ? 'row-selected' : undefined}>
+                    {selectable && (
+                      <td className="cell-select">
+                        <input
+                          type="checkbox"
+                          checked={selected.has(key)}
+                          onChange={() => toggleOne(key)}
+                          aria-label="Pilih baris"
+                        />
+                      </td>
+                    )}
+                    {columns.map((column) => (
+                      <td key={column.key} className={column.className}>
+                        {column.render ? column.render(row) : row[column.key] ?? '—'}
+                      </td>
+                    ))}
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+      {pageSize > 0 && !loading && total > pageSize && (
+        <div className="table-pager">
+          <span>
+            Menampilkan {safePage * pageSize + 1}–{Math.min(total, (safePage + 1) * pageSize)} dari {total}
+          </span>
+          <div className="table-pager-actions">
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => setPage((value) => Math.max(0, value - 1))}
+              disabled={safePage === 0}
+              aria-label="Halaman sebelumnya"
+            >
+              <ChevronLeft size={14} /> Sebelumnya
+            </button>
+            <span className="table-pager-page">
+              {safePage + 1} / {pageCount}
+            </span>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => setPage((value) => Math.min(pageCount - 1, value + 1))}
+              disabled={safePage >= pageCount - 1}
+              aria-label="Halaman berikutnya"
+            >
+              Berikutnya <ChevronRight size={14} />
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function ColumnPicker({ columns, hidden, onChange, storageLabel = 'kolom' }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onPointerDown = (event) => {
+      if (ref.current && !ref.current.contains(event.target)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    return () => document.removeEventListener('mousedown', onPointerDown);
+  }, [open]);
+
+  return (
+    <div className="column-picker" ref={ref}>
+      <button type="button" className="btn btn-secondary btn-sm" onClick={() => setOpen((value) => !value)} aria-expanded={open}>
+        <SlidersHorizontal size={14} /> Kolom
+      </button>
+      {open && (
+        <div className="column-picker-menu" role="group" aria-label={`Atur ${storageLabel} tabel`}>
+          {columns.map((column) => (
+            <label key={column.key} className="column-picker-item">
+              <input
+                type="checkbox"
+                checked={!hidden[column.key]}
+                onChange={() => onChange({ ...hidden, [column.key]: !hidden[column.key] })}
+              />
+              <span>{column.label}</span>
+            </label>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -239,19 +389,28 @@ export function ToastProvider({ children }) {
   }, []);
 
   const push = useCallback(
-    (message, tone = 'success') => {
+    (message, tone = 'success', options = {}) => {
       const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-      setToasts((current) => [...current, { id, message, tone }]);
-      window.setTimeout(() => remove(id), 4500);
+      const action = options.action
+        ? {
+            label: options.action.label || 'Urungkan',
+            run: () => {
+              remove(id);
+              options.action.onClick?.();
+            },
+          }
+        : null;
+      setToasts((current) => [...current.slice(-3), { id, message, tone, action }]);
+      window.setTimeout(() => remove(id), options.duration ?? (action ? 8000 : 4500));
     },
     [remove]
   );
 
   const toast = useMemo(
     () => ({
-      success: (message) => push(message, 'success'),
-      error: (message) => push(message, 'error'),
-      info: (message) => push(message, 'info'),
+      success: (message, options) => push(message, 'success', options),
+      error: (message, options) => push(message, 'error', options),
+      info: (message, options) => push(message, 'info', options),
     }),
     [push]
   );
@@ -264,6 +423,11 @@ export function ToastProvider({ children }) {
           <div key={item.id} className={`toast toast-${item.tone}`}>
             {item.tone === 'success' ? <CheckCircle2 size={17} /> : item.tone === 'error' ? <AlertCircle size={17} /> : <Info size={17} />}
             <span>{item.message}</span>
+            {item.action && (
+              <button type="button" className="toast-action" onClick={item.action.run}>
+                {item.action.label}
+              </button>
+            )}
             <button type="button" onClick={() => remove(item.id)} aria-label="Tutup notifikasi">
               <X size={14} />
             </button>
@@ -363,6 +527,82 @@ export function DetailItem({ label, children, className = '' }) {
     <div className={`detail-item ${className}`.trim()}>
       <span>{label}</span>
       <div>{children ?? '—'}</div>
+    </div>
+  );
+}
+
+export function useLocalStorageState(key, initialValue) {
+  const [value, setValue] = useState(() => {
+    try {
+      const stored = localStorage.getItem(key);
+      return stored === null ? (typeof initialValue === 'function' ? initialValue() : initialValue) : JSON.parse(stored);
+    } catch {
+      return typeof initialValue === 'function' ? initialValue() : initialValue;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+    } catch {
+      /* storage full or blocked */
+    }
+  }, [key, value]);
+
+  return [value, setValue];
+}
+
+export function useUnsavedGuard(dirty) {
+  useEffect(() => {
+    if (!dirty) return undefined;
+    const handler = (event) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [dirty]);
+}
+
+export function useOnline() {
+  const [online, setOnline] = useState(() => (typeof navigator === 'undefined' ? true : navigator.onLine));
+  useEffect(() => {
+    const goOnline = () => setOnline(true);
+    const goOffline = () => setOnline(false);
+    window.addEventListener('online', goOnline);
+    window.addEventListener('offline', goOffline);
+    return () => {
+      window.removeEventListener('online', goOnline);
+      window.removeEventListener('offline', goOffline);
+    };
+  }, []);
+  return online;
+}
+
+export function OfflineBanner() {
+  const online = useOnline();
+  const [justBack, setJustBack] = useState(false);
+  const wasOffline = useRef(!online);
+
+  useEffect(() => {
+    if (!online) {
+      wasOffline.current = true;
+      return undefined;
+    }
+    if (wasOffline.current) {
+      wasOffline.current = false;
+      setJustBack(true);
+      const timer = window.setTimeout(() => setJustBack(false), 3500);
+      return () => window.clearTimeout(timer);
+    }
+    return undefined;
+  }, [online]);
+
+  if (online && !justBack) return null;
+  return (
+    <div className={`network-banner ${online ? 'network-banner-ok' : ''}`.trim()} role="status" aria-live="polite">
+      <WifiOff size={15} />
+      {online ? 'Koneksi kembali tersedia.' : 'Anda sedang offline. Data terakhir yang dimuat tetap bisa dilihat, aksi tulis akan gagal sampai koneksi pulih.'}
     </div>
   );
 }

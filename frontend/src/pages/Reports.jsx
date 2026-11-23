@@ -10,7 +10,7 @@ import {
   Users,
   Wrench,
 } from 'lucide-react';
-import { getToken } from '../api.js';
+import { apiGet, downloadFile } from '../api.js';
 import { fmtDate, fmtMoney, statusLabel, toDateInput } from '../format.js';
 import { Badge, ErrorBanner, PageHeader, Spinner, StatCard, useToast } from '../ui.jsx';
 
@@ -38,7 +38,7 @@ export default function Reports() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [dataset, setDataset] = useState('bookings');
-  const [downloading, setDownloading] = useState(false);
+  const [downloading, setDownloading] = useState('');
 
   const load = useCallback(async (nextRange = range) => {
     setLoading(true);
@@ -70,40 +70,15 @@ export default function Reports() {
     load(range);
   };
 
-  const download = async () => {
-    setDownloading(true);
+  const download = async (format) => {
+    setDownloading(format);
     try {
-      const query = new URLSearchParams({ dataset, from: range.from, to: range.to });
-      const response = await fetch(`/api/reports/export.csv?${query.toString()}`, {
-        headers: { Authorization: `Bearer ${getToken()}` },
-      });
-      if (!response.ok) {
-        let message = `Ekspor gagal (HTTP ${response.status})`;
-        try {
-          const payload = await response.json();
-          if (payload?.error) message = payload.error;
-        } catch {
-          /* keep default message */
-        }
-        throw new Error(message);
-      }
-      const blob = await response.blob();
-      const disposition = response.headers.get('content-disposition') || '';
-      const match = disposition.match(/filename="?([^";]+)"?/i);
-      const filename = match?.[1] || `laporan-${dataset}-${range.from}.csv`;
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement('a');
-      anchor.href = url;
-      anchor.download = filename;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      URL.revokeObjectURL(url);
-      toast.success('File CSV berhasil diunduh.');
+      const filename = await downloadFile(`/reports/export.${format}`, { dataset, from: range.from, to: range.to });
+      toast.success(`File ${filename} berhasil diunduh.`);
     } catch (err) {
       toast.error(err.message);
     } finally {
-      setDownloading(false);
+      setDownloading('');
     }
   };
 
@@ -147,15 +122,18 @@ export default function Reports() {
           </button>
         </div>
         <div className="report-export">
-          <select value={dataset} onChange={(event) => setDataset(event.target.value)}>
+          <select value={dataset} onChange={(event) => setDataset(event.target.value)} aria-label="Jenis data ekspor">
             {DATASETS.map(([value, label]) => (
               <option key={value} value={value}>
                 {label}
               </option>
             ))}
           </select>
-          <button type="button" className="btn btn-secondary btn-sm" onClick={download} disabled={downloading}>
-            <Download size={14} /> {downloading ? 'Mengunduh...' : 'Ekspor CSV'}
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => download('csv')} disabled={Boolean(downloading)}>
+            <Download size={14} /> {downloading === 'csv' ? 'Mengunduh...' : 'CSV'}
+          </button>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => download('xls')} disabled={Boolean(downloading)}>
+            <Download size={14} /> {downloading === 'xls' ? 'Mengunduh...' : 'Excel'}
           </button>
         </div>
       </div>
@@ -376,20 +354,5 @@ export default function Reports() {
 }
 
 async function fetchReport(range) {
-  const query = new URLSearchParams({ from: range.from, to: range.to });
-  const token = getToken();
-  const response = await fetch(`/api/reports/summary?${query.toString()}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
-  if (!response.ok) {
-    let message = `Gagal memuat laporan (HTTP ${response.status})`;
-    try {
-      const payload = await response.json();
-      if (payload?.error) message = payload.error;
-    } catch {
-      /* ignore */
-    }
-    throw new Error(message);
-  }
-  return response.json();
+  return apiGet('/reports/summary', { from: range.from, to: range.to });
 }
