@@ -13,7 +13,7 @@ const baseSchema = {
   phone: z.string().trim().min(6, 'Nomor telepon wajib diisi').max(30),
   licenseNumber: z.string().trim().min(3, 'Nomor SIM wajib diisi').max(40),
   licenseCategory: z.string().trim().max(20).optional(),
-  licenseExpiry: z.coerce.date({ invalid_type_error: 'Tanggal SIM tidak valid' }),
+  licenseExpiry: z.coerce.date({ error: 'Tanggal SIM tidak valid' }),
   type: z.enum(['INTERNAL', 'VENDOR']).default('INTERNAL'),
   vendorId: z.string().trim().optional().nullable(),
   userId: z.string().trim().optional().nullable(),

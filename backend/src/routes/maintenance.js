@@ -17,7 +17,7 @@ const createSchema = z.object({
   vehicleId: z.string().trim().min(1, 'Kendaraan wajib dipilih'),
   title: z.string().trim().min(3, 'Jenis perawatan wajib diisi').max(120),
   description: z.string().trim().max(500).optional().nullable(),
-  scheduledAt: z.coerce.date({ invalid_type_error: 'Jadwal maintenance tidak valid' }),
+  scheduledAt: z.coerce.date({ error: 'Jadwal maintenance tidak valid' }),
   cost: z.coerce.number().min(0, 'Biaya tidak boleh negatif').max(1_000_000_000).optional().default(0),
   kind: z.enum(KINDS).optional(),
   priority: z.enum(PRIORITIES).optional(),

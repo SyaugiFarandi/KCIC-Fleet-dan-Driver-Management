@@ -47,6 +47,12 @@ function assertNotBlocked(key) {
 }
 
 function recordFailure(key) {
+  if (failedLogins.size > 5000) {
+    const now = Date.now();
+    for (const [storedKey, entry] of failedLogins) {
+      if (entry.resetAt < now) failedLogins.delete(storedKey);
+    }
+  }
   const entry = failedLogins.get(key);
   if (!entry || entry.resetAt < Date.now()) {
     failedLogins.set(key, { count: 1, resetAt: Date.now() + WINDOW_MS });
@@ -94,7 +100,7 @@ router.post(
     });
     await writeAudit({ userId: user.id, action: 'LOGIN', entity: 'User', entityId: user.id, detail: 'Login berhasil' });
     setSessionCookie(res, token);
-    res.json({ token, user: publicUser(user) });
+    res.json({ ...(config.isProduction ? {} : { token }), user: publicUser(user) });
   })
 );
 

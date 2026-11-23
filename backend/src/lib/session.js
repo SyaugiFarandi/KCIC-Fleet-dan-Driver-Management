@@ -5,7 +5,7 @@ export const SESSION_COOKIE = 'fleet_session';
 const COOKIE_OPTIONS = {
   httpOnly: true,
   sameSite: 'lax',
-  secure: config.env === 'production',
+  secure: config.cookieSecure,
   path: '/',
 };
 

@@ -266,7 +266,7 @@ router.post('/', asyncRoute(async (req, res) => {
 
 router.patch('/:id/review', requirePermission('fuel:review'), asyncRoute(async (req, res) => {
   const schema = z.object({
-    decision: z.enum(['APPROVE', 'CLEAR'], { invalid_type_error: 'Keputusan review tidak valid' }),
+    decision: z.enum(['APPROVE', 'CLEAR'], { error: 'Keputusan review tidak valid' }),
     note: z.string().trim().max(300).optional(),
   });
   const { decision, note } = schema.parse(req.body);

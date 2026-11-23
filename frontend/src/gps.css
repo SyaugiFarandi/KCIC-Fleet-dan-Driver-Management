@@ -22,6 +22,29 @@
   letter-spacing: 0.4px;
 }
 
+.gps-telemetry-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 14px;
+  margin-top: 6px;
+  font-size: 11px;
+}
+
+.gps-telemetry {
+  font-size: 9px !important;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  color: var(--muted);
+}
+
+.gps-telemetry-live { color: #15803d; }
+.gps-telemetry-simulated { color: #1d4ed8; }
+.gps-telemetry-stale { color: #b45309; }
+.gps-telemetry-offline { color: #6b7280; }
+
 .gps-kpis {
   margin-bottom: 14px;
 }

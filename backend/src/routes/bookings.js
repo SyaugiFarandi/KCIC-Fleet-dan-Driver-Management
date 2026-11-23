@@ -63,8 +63,8 @@ const createSchema = z
     routeId: z.string().trim().optional().nullable(),
     origin: z.string().trim().max(120).optional(),
     destination: z.string().trim().max(120).optional(),
-    departureAt: z.coerce.date({ invalid_type_error: 'Waktu keberangkatan tidak valid' }),
-    returnAt: z.coerce.date({ invalid_type_error: 'Waktu kembali tidak valid' }).optional().nullable(),
+    departureAt: z.coerce.date({ error: 'Waktu keberangkatan tidak valid' }),
+    returnAt: z.coerce.date({ error: 'Waktu kembali tidak valid' }).optional().nullable(),
     recurrence: recurrenceSchema.optional().nullable(),
   })
   .refine((v) => v.routeId || (v.origin && v.destination), {

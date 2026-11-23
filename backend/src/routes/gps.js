@@ -6,11 +6,13 @@ import { requirePermission } from '../lib/permissions.js';
 import { writeAudit } from '../lib/audit.js';
 import { ACTIVE_TRIP_STATUSES } from '../lib/workflow.js';
 import { DEMO_GPS_DISCLAIMER, DEMO_GPS_SOURCE, GPS_EVENT_LABELS, etaInfo, motionStatus } from '../lib/gps.js';
+import { gpsProviderInfo, telemetryStatus } from '../lib/gpsProviders.js';
+import { logger } from '../lib/logger.js';
 
 const router = express.Router();
 
-function demoMeta() {
-  return { source: DEMO_GPS_SOURCE, disclaimer: DEMO_GPS_DISCLAIMER };
+function gpsMeta() {
+  return { source: DEMO_GPS_SOURCE, disclaimer: DEMO_GPS_DISCLAIMER, telemetry: gpsProviderInfo() };
 }
 
 function serializeLocation(location) {
@@ -73,11 +75,14 @@ async function buildPositions(query = {}) {
   });
 
   const now = Date.now();
-  const latestRows = await Promise.all(
-    vehicles.map((vehicle) =>
-      prisma.vehicleLocation.findFirst({ where: { vehicleId: vehicle.id }, orderBy: { recordedAt: 'desc' } })
-    )
-  );
+  const latestRows = vehicles.length
+    ? await prisma.vehicleLocation.findMany({
+        where: { vehicleId: { in: vehicles.map((vehicle) => vehicle.id) } },
+        orderBy: [{ vehicleId: 'asc' }, { recordedAt: 'desc' }],
+        distinct: ['vehicleId'],
+      })
+    : [];
+  const latestByVehicle = new Map(latestRows.map((row) => [row.vehicleId, row]));
 
   const recentDeviations = await prisma.gpsEvent.findMany({
     where: {
@@ -93,8 +98,8 @@ async function buildPositions(query = {}) {
     if (!deviationByVehicle.has(event.vehicleId)) deviationByVehicle.set(event.vehicleId, event);
   }
 
-  const allItems = vehicles.map((vehicle, index) => {
-    const location = latestRows[index];
+  const allItems = vehicles.map((vehicle) => {
+    const location = latestByVehicle.get(vehicle.id) || null;
     const trip = vehicle.trips[0] || null;
     const booking = trip?.booking || null;
     const motion = motionStatus(location, now);
@@ -111,6 +116,7 @@ async function buildPositions(query = {}) {
       device: serializeDevice(vehicle.gpsDevice),
       location: serializeLocation(location),
       motionStatus: motion,
+      telemetryStatus: telemetryStatus(location, vehicle.gpsDevice, now),
       driver: trip?.driver || null,
       trip: trip
         ? {
@@ -140,6 +146,10 @@ async function buildPositions(query = {}) {
     moving: allItems.filter((item) => item.motionStatus === 'MOVING').length,
     stopped: allItems.filter((item) => item.motionStatus === 'STOPPED').length,
     offline: allItems.filter((item) => item.motionStatus === 'OFFLINE').length,
+    simulated: allItems.filter((item) => item.telemetryStatus === 'SIMULATED').length,
+    live: allItems.filter((item) => item.telemetryStatus === 'LIVE').length,
+    stale: allItems.filter((item) => item.telemetryStatus === 'STALE').length,
+    telemetryOffline: allItems.filter((item) => item.telemetryStatus === 'OFFLINE').length,
     withDevice: allItems.filter((item) => item.device).length,
     deviations: allItems.filter((item) => item.deviation).length,
   };
@@ -173,7 +183,7 @@ async function buildPositions(query = {}) {
     totalFiltered: items.length,
     counts,
     generatedAt: new Date(now).toISOString(),
-    ...demoMeta(),
+    ...gpsMeta(),
   };
 }
 
@@ -203,7 +213,7 @@ router.get('/stream', requirePermission('gps:read'), async (req, res) => {
       if (closed) return;
       res.write(`event: positions\ndata: ${JSON.stringify(payload)}\n\n`);
     } catch (err) {
-      console.error('[sse] gps stream failed', err.message);
+      logger.error('gps_stream_failed', { requestId: req.id, error: err.message });
       if (!closed) res.write('event: error\ndata: {"message":"Gagal memuat posisi armada"}\n\n');
     }
   };
@@ -252,7 +262,7 @@ router.get('/options', requirePermission('gps:read'), asyncRoute(async (req, res
       { value: 'AIRPORT', label: 'Bandara' },
       { value: 'ZONE', label: 'Zona Operasional' },
     ],
-    ...demoMeta(),
+    ...gpsMeta(),
   });
 }));
 
@@ -317,11 +327,12 @@ router.get('/vehicles/:id', requirePermission('gps:read'), asyncRoute(async (req
     device: serializeDevice(vehicle.gpsDevice),
     location: serializeLocation(location),
     motionStatus: motionStatus(location),
+    telemetryStatus: telemetryStatus(location, vehicle.gpsDevice),
     activeTrip: trip,
     eta: etaInfo(trip),
     events,
     trips,
-    ...demoMeta(),
+    ...gpsMeta(),
   });
 }));
 
@@ -347,7 +358,7 @@ router.get('/vehicles/:id/history', requirePermission('gps:read'), asyncRoute(as
   });
   rows.reverse();
 
-  res.json({ items: rows.map(serializeLocation), from, to, ...demoMeta() });
+  res.json({ items: rows.map(serializeLocation), from, to, ...gpsMeta() });
 }));
 
 router.get('/trips/:tripId/replay', requirePermission('gps:read'), asyncRoute(async (req, res) => {
@@ -388,7 +399,7 @@ router.get('/trips/:tripId/replay', requirePermission('gps:read'), asyncRoute(as
       completedAt: trip.completedAt,
     },
     points: points.map(serializeLocation),
-    ...demoMeta(),
+    ...gpsMeta(),
   });
 }));
 
@@ -419,7 +430,7 @@ router.get('/events', requirePermission('gps:read'), asyncRoute(async (req, res)
     prisma.gpsEvent.count({ where }),
     prisma.gpsEvent.count({ where: { ...baseWhere, acknowledgedAt: null } }),
   ]);
-  res.json({ ...paged(items, total, page), unacknowledged, labels: GPS_EVENT_LABELS, ...demoMeta() });
+  res.json({ ...paged(items, total, page), unacknowledged, labels: GPS_EVENT_LABELS, ...gpsMeta() });
 }));
 
 router.patch('/events/:id/acknowledge', requirePermission('gps:write'), asyncRoute(async (req, res) => {
@@ -460,7 +471,7 @@ const geofenceSchema = z.object({
 
 router.get('/geofences', requirePermission('gps:read'), asyncRoute(async (req, res) => {
   const items = await prisma.geofence.findMany({ orderBy: { name: 'asc' } });
-  res.json({ items, ...demoMeta() });
+  res.json({ items, ...gpsMeta() });
 }));
 
 router.post('/geofences', requirePermission('gps:write'), asyncRoute(async (req, res) => {
@@ -536,7 +547,7 @@ router.get('/devices', requirePermission('gps:read'), asyncRoute(async (req, res
       vehicle: { select: { id: true, plateNumber: true, brand: true, model: true, ownership: true, status: true } },
     },
   });
-  res.json({ items, ...demoMeta() });
+  res.json({ items, ...gpsMeta() });
 }));
 
 router.post('/devices', requirePermission('gps:write'), asyncRoute(async (req, res) => {

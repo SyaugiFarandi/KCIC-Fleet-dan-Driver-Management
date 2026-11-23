@@ -14,7 +14,7 @@ The script:
 2. Resets it with `prisma migrate reset --force --skip-seed`.
 3. Inserts deterministic fixtures: 12 users, 2 vendors, 2 routes, 4 vehicles (two with
    document expiry dates), 4 drivers, 1 geofence, 3 GPS devices, 2 GPS events.
-4. Runs 67 tests sequentially (`--test-concurrency=1`). Tests that need extra master data
+4. Runs 102 tests sequentially (`--test-concurrency=1`). Tests that need extra master data
    (an enterprise QA vehicle/driver/user, inspection templates, contracts) create their own
    rows, so count-based assertions tolerate those fixtures.
 
@@ -22,15 +22,24 @@ Coverage by file:
 
 | File | Area |
 | --- | --- |
+| `config.test.js` | production guards: weak/short/placeholder JWT secret, wildcard CORS, non-Secure cookie, short metrics/GPS ingest tokens, channel credentials |
+| `seed-guard.test.js` | demo seed refuses to run under production without `ALLOW_DEMO_SEED=true` |
 | `auth.test.js` | login, JWT, profile, password change, deactivated accounts, 404 JSON |
+| `concurrency.test.js` | concurrent assignments cannot share a vehicle/driver; one trip per booking |
 | `rbac.test.js` | per-role 403 checks, booking scoping, dashboard scoping |
 | `workflow.test.js` | booking → approval → dispatch → trip completion, conflicts, maintenance, reassignment |
 | `master-data.test.js` | vehicle/vendor/driver/route CRUD, validation, reference protection, audit |
 | `users.test.js` | user CRUD, pagination/filtering, self-protection rules |
 | `gps.test.js` | staff-only access; motion status derivation; status/ownership/driver/search filters; detail; history range/limit; trip replay; events filters; geofence CRUD (+validation, 409, audit); GPS device CRUD (+409 duplicates, audit) |
+| `gps-ingest-hidden.test.js` | ingest endpoint 404 and no LIVE mode while `GPS_INGEST_TOKEN` is unset |
+| `gps-ingest.test.js` | token rejection, timestamp/IMEI/device validation, LIVE ingest → telemetry status and positions metadata |
+| `notification-channels-disabled.test.js` | channels disabled/configured=false, no secrets, RBAC on channel/delivery endpoints, no delivery rows |
+| `notification-channels.test.js` | channel states, masked targets, SENT history, retry recovery, FAILED after 3 attempts without secret leakage, SKIPPED when unconfigured, background dispatch |
 | `features.test.js` | notifications (scoping, read/mark-all, dedupe, sweep) · reports summary + CSV (RBAC, range, unknown dataset 400) · recurring booking series · checklist template + `PICKED_UP` gate · vehicle document expiry fields · GPS ETA/deviation · event acknowledgement (+403/404/409, audit) |
 | `ux-phases.test.js` | httpOnly cookie session, notification preferences, series-wide cancel (+RBAC), vehicle checklist templates, Excel export |
 | `enterprise.test.js` | route recommendations (+RBAC/ranking/404) · emergency transport create/validation/scope/decision/summary · inspection template + inspection lifecycle → FAILED critical defect · maintenance predictions (4 rules, RBAC) → work order from defect → start/complete resolves defect · driver-scoped fuel submission (trip ownership, 120 L anomaly) + review RBAC · SLA contract create/duplicate/range validation + scorecard · intelligence KPI library/data-quality/widgets (+RBAC) · read-only assistant suggestions/query/validation (+RBAC) |
+| `observability.test.js` | structured access/error logs with request ID, health (DB + simulator), token-gated metrics, audit-failure logging |
+| `observability-hidden.test.js` | metrics endpoint hidden (404) and no secret leakage while `METRICS_TOKEN` is unset |
 
 The GPS simulator is disabled automatically under `NODE_ENV=test`, so tests are deterministic.
 

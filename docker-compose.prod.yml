@@ -1,0 +1,55 @@
+# Production overlay: HTTPS termination at nginx + hardened API settings.
+# Usage:
+#   JWT_SECRET=... WEB_PORT=8080 WEB_HTTPS_PORT=8443 \
+#     docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+# Certificate files expected in ./deploy/certs (mounted read-only):
+#   fullchain.pem, privkey.pem
+# Never commit real certificates or private keys.
+
+services:
+  api:
+    environment:
+      NODE_ENV: production
+      COOKIE_SECURE: "true"
+      ALLOW_INSECURE_HTTP: "false"
+      GPS_SIM_ENABLED: ${GPS_SIM_ENABLED:-false}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET wajib di-set (minimal 32 karakter acak)}
+      CORS_ORIGIN: ${CORS_ORIGIN:?CORS_ORIGIN wajib di-set untuk deployment production}
+      METRICS_TOKEN: ${METRICS_TOKEN:-}
+      GPS_INGEST_TOKEN: ${GPS_INGEST_TOKEN:-}
+      EMAIL_NOTIFICATIONS_ENABLED: ${EMAIL_NOTIFICATIONS_ENABLED:-false}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
+      TELEGRAM_NOTIFICATIONS_ENABLED: ${TELEGRAM_NOTIFICATIONS_ENABLED:-false}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      ALLOW_DEMO_SEED: "false"
+    # Production boot never seeds. Schema migrations only, then serve.
+    command: sh -c "npx prisma generate && npx prisma migrate deploy && node src/server.js"
+
+  # One-off demo/staging seed. Never part of the default boot.
+  # Usage: ALLOW_DEMO_SEED=true docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile seed run --rm seed
+  seed:
+    build: ./backend
+    profiles: ["seed"]
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      ALLOW_DEMO_SEED: "true"
+      DATABASE_URL: postgresql://fleet:fleet_demo_password@db:5432/fleet_demo?schema=public
+    command: sh -c "npx prisma generate && node prisma/seed.js"
+    restart: "no"
+
+  web:
+    ports:
+      - "${WEB_HTTPS_PORT:-8443}:443"
+    volumes:
+      - ${TLS_CERT_DIR:-./deploy/certs}:/etc/nginx/certs:ro
+      - ./deploy/nginx.https.conf:/etc/nginx/conf.d/default.conf:ro

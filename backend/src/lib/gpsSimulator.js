@@ -2,6 +2,8 @@ import { prisma } from '../db.js';
 import { ACTIVE_TRIP_STATUSES } from './workflow.js';
 import { DEMO_GPS_SOURCE, DEVIATION_THRESHOLD_M, GPS_PLACES, distanceMeters, parkedPoint, routePoint, simulatedDeviationOffset } from './gps.js';
 import { notifyGpsEvent } from './notifications.js';
+import { observeGpsTick } from './metrics.js';
+import { logger } from './logger.js';
 
 /**
  * DEMO-only GPS simulator. It advances vehicle coordinates along the booked
@@ -10,16 +12,31 @@ import { notifyGpsEvent } from './notifications.js';
  */
 let timer = null;
 let ticking = false;
+let intervalMs = 0;
+const state = { ticks: 0, lastTickAt: null, lastDurationMs: null, lastError: null };
 
-export function startGpsSimulator({ intervalMs = 15_000 } = {}) {
+export function gpsSimulatorStatus() {
+  return {
+    enabled: Boolean(timer),
+    intervalMs,
+    ticks: state.ticks,
+    lastTickAt: state.lastTickAt,
+    lastTickAgeSeconds: state.lastTickAt ? Math.round((Date.now() - state.lastTickAt) / 1000) : null,
+    lastDurationMs: state.lastDurationMs,
+    lastError: state.lastError,
+  };
+}
+
+export function startGpsSimulator({ intervalMs: configuredMs = 15_000 } = {}) {
   if (timer) return timer;
+  intervalMs = configuredMs;
   const tick = () => {
-    runGpsTick().catch((err) => console.error('[gps-sim] tick failed:', err.message));
+    runGpsTick().catch((err) => logger.error('gps_simulator_tick_failed', { error: err.message }));
   };
   tick();
-  timer = setInterval(tick, intervalMs);
+  timer = setInterval(tick, configuredMs);
   timer.unref?.();
-  console.log(`[gps-sim] DEMO GPS simulator active (interval ${intervalMs} ms, source ${DEMO_GPS_SOURCE})`);
+  logger.info('gps_simulator_started', { intervalMs: configuredMs, source: DEMO_GPS_SOURCE });
   return timer;
 }
 
@@ -28,6 +45,7 @@ export function stopGpsSimulator() {
     clearInterval(timer);
     timer = null;
   }
+  intervalMs = 0;
 }
 
 export function tripProgress(trip, nowMs = Date.now()) {
@@ -67,6 +85,8 @@ async function maybeOverspeed({ vehicle, device, trip, point, speedKph, recorded
 export async function runGpsTick(nowMs = Date.now()) {
   if (ticking) return { skipped: true, written: 0 };
   ticking = true;
+  const started = Date.now();
+  let ok = false;
   try {
     const [vehicles, geofences] = await Promise.all([
       prisma.vehicle.findMany({
@@ -217,8 +237,18 @@ export async function runGpsTick(nowMs = Date.now()) {
       }
     }
 
+    ok = true;
     return { skipped: false, written, events, at: new Date(nowMs).toISOString() };
+  } catch (err) {
+    state.lastError = err.message;
+    throw err;
   } finally {
     ticking = false;
+    const durationMs = Date.now() - started;
+    state.ticks += 1;
+    state.lastTickAt = Date.now();
+    state.lastDurationMs = durationMs;
+    if (ok) state.lastError = null;
+    observeGpsTick({ ok, durationMs });
   }
 }

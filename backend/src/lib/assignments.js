@@ -6,6 +6,18 @@ const db = (tx) => tx ?? prisma;
 
 export const BLOCKING_DEFECT_STATUSES = ['OPEN', 'IN_REPAIR'];
 
+/**
+ * Serializes assignment attempts for the same vehicle/driver across concurrent
+ * transactions. Advisory transaction locks are released automatically on commit
+ * or rollback; keys are sorted to avoid deadlocks.
+ */
+export async function lockAssignmentResources(tx, { vehicleId, driverId }) {
+  const keys = [`vehicle:${vehicleId}`, `driver:${driverId}`].sort();
+  for (const key of keys) {
+    await tx.$queryRaw`SELECT 1 AS locked FROM (SELECT pg_advisory_xact_lock(hashtext(${key})::bigint)) AS _lock`;
+  }
+}
+
 async function blockedVehicleIds(client) {
   const criticalDefects = await client.defect.findMany({
     where: { status: { in: BLOCKING_DEFECT_STATUSES }, severity: 'CRITICAL' },

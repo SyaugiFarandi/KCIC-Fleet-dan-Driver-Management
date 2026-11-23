@@ -5,7 +5,7 @@ import { HttpError, asyncRoute, pagination, paged } from '../lib/http.js';
 import { can, requirePermission } from '../lib/permissions.js';
 import { writeAudit } from '../lib/audit.js';
 import { assertTransition, TRIP_TRANSITIONS, TRIP_STATUS_LABELS } from '../lib/workflow.js';
-import { availabilityFor, assertAssignable } from '../lib/assignments.js';
+import { availabilityFor, assertAssignable, lockAssignmentResources } from '../lib/assignments.js';
 import { refreshDriverAvailability, refreshVehicleStatus } from '../lib/resourceStatus.js';
 import { notify } from '../lib/notifications.js';
 import { TRIP_CHECKLIST_ITEMS, checklistItemsFor } from '../lib/checklist.js';
@@ -216,12 +216,14 @@ router.post('/', requirePermission('trips:assign'), asyncRoute(async (req, res) 
   const { bookingId, vehicleId, driverId, notes } = assignSchema.parse(req.body);
 
   const trip = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "Booking" WHERE id = ${bookingId} FOR UPDATE`;
     const booking = await tx.booking.findUnique({ where: { id: bookingId }, include: { trip: true } });
     if (!booking) throw new HttpError(404, 'Booking tidak ditemukan');
     if (booking.trip) throw new HttpError(409, 'Booking sudah memiliki penugasan');
     if (booking.status !== 'APPROVED') {
       throw new HttpError(409, `Booking harus berstatus APPROVED sebelum penugasan (saat ini ${booking.status})`);
     }
+    await lockAssignmentResources(tx, { vehicleId, driverId });
     await assertAssignable(tx, booking, { vehicleId, driverId });
 
     const created = await tx.trip.create({
@@ -276,6 +278,7 @@ router.patch('/:id/assignment', requirePermission('trips:assign'), asyncRoute(as
   const { vehicleId, driverId, notes } = reassignSchema.parse(req.body);
 
   const updated = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "Trip" WHERE id = ${req.params.id} FOR UPDATE`;
     const trip = await tx.trip.findUnique({ where: { id: req.params.id }, include: { booking: true } });
     if (!trip) throw new HttpError(404, 'Trip tidak ditemukan');
     if (['COMPLETED', 'CANCELLED'].includes(trip.status)) {
@@ -283,6 +286,7 @@ router.patch('/:id/assignment', requirePermission('trips:assign'), asyncRoute(as
     }
     if (trip.vehicleId === vehicleId && trip.driverId === driverId) return trip;
 
+    await lockAssignmentResources(tx, { vehicleId, driverId });
     await assertAssignable(tx, trip.booking, { vehicleId, driverId, excludeTripId: trip.id });
     const oldVehicleId = trip.vehicleId;
     const oldDriverId = trip.driverId;
@@ -381,7 +385,10 @@ router.patch('/:id/status', asyncRoute(async (req, res) => {
   };
 
   const updated = await prisma.$transaction(async (tx) => {
-    const result = await tx.trip.update({ where: { id: trip.id }, data });
+    const result = await tx.trip.updateMany({ where: { id: trip.id, status: trip.status }, data });
+    if (result.count === 0) {
+      throw new HttpError(409, 'Status trip sudah berubah. Muat ulang data sebelum mencoba lagi.');
+    }
     await tx.tripEvent.create({ data: { tripId: trip.id, status, note: note || TRIP_STATUS_LABELS[status], actorId: req.user.id } });
 
     if (status === 'COMPLETED') {
@@ -397,7 +404,7 @@ router.patch('/:id/status', asyncRoute(async (req, res) => {
       await refreshVehicleStatus(tx, trip.vehicleId);
       await refreshDriverAvailability(tx, trip.driverId);
     }
-    return result;
+    return { id: trip.id };
   });
 
   await writeAudit({

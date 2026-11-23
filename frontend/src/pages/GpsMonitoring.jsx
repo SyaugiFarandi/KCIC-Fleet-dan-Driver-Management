@@ -43,6 +43,8 @@ const CENTER = [-6.55, 107.15];
 
 const MOTION_LABELS = { MOVING: 'Bergerak', STOPPED: 'Berhenti', OFFLINE: 'Offline' };
 const MOTION_TONES = { MOVING: 'green', STOPPED: 'amber', OFFLINE: 'gray' };
+const TELEMETRY_LABELS = { SIMULATED: 'Simulasi', LIVE: 'Live', STALE: 'Data lama', OFFLINE: 'Tanpa data' };
+const TELEMETRY_TONES = { SIMULATED: 'blue', LIVE: 'green', STALE: 'amber', OFFLINE: 'gray' };
 const GEOFENCE_CATEGORIES = { STATION: 'Stasiun', DEPOT: 'Depo', OFFICE: 'Kantor', AIRPORT: 'Bandara', ZONE: 'Zona' };
 const GEOFENCE_COLORS = {
   STATION: '#1d4ed8',
@@ -143,6 +145,7 @@ export default function GpsMonitoring() {
   const [positions, setPositions] = useState([]);
   const [liveFeed, setLiveFeed] = useState('connecting');
   const [counts, setCounts] = useState(null);
+  const [telemetryMeta, setTelemetryMeta] = useState(null);
   const [generatedAt, setGeneratedAt] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -191,6 +194,7 @@ export default function GpsMonitoring() {
         });
         setPositions(data.items);
         setCounts(data.counts);
+        setTelemetryMeta(data.telemetry || null);
         setGeneratedAt(data.generatedAt);
         setError(null);
       } catch (err) {
@@ -290,6 +294,7 @@ export default function GpsMonitoring() {
     const applyPayload = (data) => {
       setPositions(data.items);
       setCounts(data.counts);
+      setTelemetryMeta(data.telemetry || null);
       setGeneratedAt(data.generatedAt);
       setError(null);
       setLoading(false);
@@ -575,6 +580,14 @@ export default function GpsMonitoring() {
         <div>
           <b>Simulator GPS demo</b> — Koordinat dihasilkan simulator lokal dan diperbarui berkala (±15 detik).
           Data ini bukan pelacakan GPS aktual dan tidak boleh dianggap sebagai lokasi resmi kendaraan.
+          <div className="gps-telemetry-meta">
+            <span>Mode: <b>{telemetryMeta?.provider === 'DEVICE_WEBHOOK' ? 'perangkat GPS (webhook)' : 'simulator demo'}</b></span>
+            <span>Ingest perangkat: <b>{telemetryMeta?.ingestEnabled ? 'aktif' : 'nonaktif'}</b></span>
+            {telemetryMeta && (
+              <span>Stale &gt; {telemetryMeta.staleAfterSeconds} dtk · offline &gt; {telemetryMeta.offlineAfterSeconds} dtk</span>
+            )}
+            <span>{counts?.live ?? 0} live · {counts?.simulated ?? 0} simulasi · {counts?.stale ?? 0} data lama</span>
+          </div>
         </div>
       </div>
 
@@ -746,6 +759,9 @@ export default function GpsMonitoring() {
                 <div className="gps-vehicle-main">
                   <div className="gps-vehicle-row">
                     <b>{item.plateNumber}</b>
+                    <span className={`gps-telemetry gps-telemetry-${String(item.telemetryStatus || 'OFFLINE').toLowerCase()}`}>
+                      {TELEMETRY_LABELS[item.telemetryStatus] || item.telemetryStatus}
+                    </span>
                     <span>{item.motionStatus === 'MOVING' ? `${Math.round(item.location?.speedKph || 0)} km/j` : MOTION_LABELS[item.motionStatus]}</span>
                   </div>
                   <small>{item.brand} {item.model} · {statusLabel(item.ownership)}</small>
@@ -784,6 +800,13 @@ export default function GpsMonitoring() {
             </div>
             <div className="gps-detail-actions">
               {selected && <Badge value={selected.motionStatus} label={MOTION_LABELS[selected.motionStatus]} tone={MOTION_TONES[selected.motionStatus]} />}
+              {selected && (
+                <Badge
+                  value={selected.telemetryStatus}
+                  label={`Telemetri: ${TELEMETRY_LABELS[selected.telemetryStatus] || selected.telemetryStatus}`}
+                  tone={TELEMETRY_TONES[selected.telemetryStatus]}
+                />
+              )}
               <button type="button" className="icon-btn" onClick={() => setSelectedId(null)} aria-label="Tutup detail">
                 ×
               </button>

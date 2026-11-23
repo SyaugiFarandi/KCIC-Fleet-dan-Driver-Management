@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { BellRing, CheckCheck, RefreshCw } from 'lucide-react';
+import { BellRing, CheckCheck, Mail, RefreshCw, Send } from 'lucide-react';
 import { apiGet, apiPatch, apiPost } from '../api.js';
 import { fmtDateTime } from '../format.js';
+import { useAuth } from '../auth.jsx';
+import { can } from '../permissions.js';
 import { EmptyState, ErrorBanner, PageHeader, SearchBox, Spinner, useToast } from '../ui.jsx';
 
 const TYPE_TONES = {
@@ -22,9 +24,15 @@ const TYPE_TABS = [
   ['MAINTENANCE_DUE', 'Maintenance'],
 ];
 
+const DELIVERY_TONES = { SENT: 'green', FAILED: 'red', SKIPPED: 'gray', PENDING: 'amber' };
+const DELIVERY_LABELS = { SENT: 'Terkirim', FAILED: 'Gagal', SKIPPED: 'Dilewati', PENDING: 'Diproses' };
+const CHANNEL_LABELS = { EMAIL: 'Email', TELEGRAM: 'Telegram' };
+
 export default function Notifications() {
   const toast = useToast();
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const canAudit = can(user?.role, 'audit:read');
 
   const [items, setItems] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -32,6 +40,29 @@ export default function Notifications() {
   const [error, setError] = useState(null);
   const [filters, setFilters] = useState({ type: 'ALL', unreadOnly: false, q: '' });
   const [busy, setBusy] = useState(false);
+  const [channels, setChannels] = useState([]);
+  const [deliveries, setDeliveries] = useState([]);
+  const [deliveryHint, setDeliveryHint] = useState('');
+
+  useEffect(() => {
+    if (!canAudit) return undefined;
+    let cancelled = false;
+    Promise.all([
+      apiGet('/notifications/channels'),
+      apiGet('/notifications/deliveries', { pageSize: 10 }),
+    ])
+      .then(([channelData, deliveryData]) => {
+        if (cancelled) return;
+        setChannels(channelData.channels || []);
+        setDeliveries(deliveryData.items || []);
+      })
+      .catch((err) => {
+        if (!cancelled) setDeliveryHint(err.message);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [canAudit]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -116,6 +147,80 @@ export default function Notifications() {
       />
 
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
+
+      {canAudit && (
+        <section className="panel notif-channels">
+          <div className="notif-channels-head">
+            <div>
+              <h3><Mail size={15} /> Channel notifikasi eksternal</h3>
+              <p className="muted">
+                Notifikasi in-app selalu aktif. Email dan Telegram hanya mengirim bila diaktifkan operator
+                dengan kredensial valid; tidak ada pengiriman keluar pada mode demo.
+              </p>
+            </div>
+            <div className="notif-channel-cards">
+              {channels.map((channel) => {
+                const active = channel.enabled && channel.configured;
+                return (
+                  <div key={channel.channel} className={`notif-channel ${active ? 'notif-channel-on' : ''}`.trim()}>
+                    <div className="notif-channel-top">
+                      <b>{CHANNEL_LABELS[channel.channel] || channel.channel}</b>
+                      <span className={`badge badge-${active ? 'green' : channel.enabled ? 'red' : 'gray'}`}>
+                        {channel.enabled ? (channel.configured ? 'Aktif' : 'Konfigurasi kurang') : 'Nonaktif'}
+                      </span>
+                    </div>
+                    <small>
+                      {channel.problem || (channel.enabled ? `Siap mengirim via ${channel.transport}` : 'Tidak mengirim ke luar aplikasi.')}
+                    </small>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="section-divider">
+            <h4><Send size={14} /> Riwayat pengiriman terakhir</h4>
+          </div>
+          {deliveries.length === 0 ? (
+            <p className="panel-empty">
+              {deliveryHint || 'Belum ada pengiriman eksternal. Riwayat akan muncul setelah channel diaktifkan dan ada notifikasi baru.'}
+            </p>
+          ) : (
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Waktu</th>
+                    <th>Channel</th>
+                    <th>Status</th>
+                    <th>Tujuan</th>
+                    <th>Percobaan</th>
+                    <th>Notifikasi</th>
+                    <th>Detail</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {deliveries.map((row) => (
+                    <tr key={row.id}>
+                      <td>{fmtDateTime(row.createdAt)}</td>
+                      <td>{CHANNEL_LABELS[row.channel] || row.channel}</td>
+                      <td>
+                        <span className={`badge badge-${DELIVERY_TONES[row.status] || 'gray'}`}>
+                          {DELIVERY_LABELS[row.status] || row.status}
+                        </span>
+                      </td>
+                      <td>{row.target || '—'}</td>
+                      <td>{row.attempts}/3</td>
+                      <td>{row.notification?.title || '—'}</td>
+                      <td className="muted">{row.detail || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      )}
 
       <div className="panel">
         <div className="toolbar">

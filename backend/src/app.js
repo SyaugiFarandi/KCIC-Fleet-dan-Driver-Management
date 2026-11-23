@@ -1,8 +1,12 @@
 import express from 'express';
 import cors from 'cors';
+import crypto from 'node:crypto';
 import { config } from './config.js';
 import { prisma } from './db.js';
 import { asyncRoute } from './lib/http.js';
+import { logger } from './lib/logger.js';
+import { observeHttp, renderMetrics } from './lib/metrics.js';
+import { gpsSimulatorStatus } from './lib/gpsSimulator.js';
 import { requireAuth } from './middleware/auth.js';
 import { errorHandler, notFound } from './middleware/error.js';
 import authRoutes from './routes/auth.js';
@@ -16,6 +20,7 @@ import emergencyRoutes from './routes/emergency.js';
 import tripRoutes from './routes/trips.js';
 import maintenanceRoutes from './routes/maintenance.js';
 import gpsRoutes from './routes/gps.js';
+import gpsIngestRoutes from './routes/gpsIngest.js';
 import auditRoutes from './routes/audit.js';
 import userRoutes from './routes/users.js';
 import notificationRoutes from './routes/notifications.js';
@@ -37,6 +42,29 @@ export function buildApp() {
     res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
     res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
     res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
+    const incoming = req.get('x-request-id');
+    const requestId = incoming && /^[A-Za-z0-9._-]{8,128}$/.test(incoming) ? incoming : crypto.randomUUID();
+    req.id = requestId;
+    res.setHeader('X-Request-Id', requestId);
+    next();
+  });
+  app.use((req, res, next) => {
+    const started = process.hrtime.bigint();
+    res.on('finish', () => {
+      const durationMs = Number(process.hrtime.bigint() - started) / 1e6;
+      observeHttp({ method: req.method, status: res.statusCode, durationMs });
+      if (!config.isTest) {
+        const level = res.statusCode >= 500 ? 'error' : res.statusCode >= 400 ? 'warn' : 'info';
+        logger[level]('http_request', {
+          requestId: req.id,
+          method: req.method,
+          path: `${req.baseUrl || ''}${req.path}`,
+          status: res.statusCode,
+          durationMs: Math.round(durationMs),
+          userId: req.user?.id ?? null,
+        });
+      }
+    });
     next();
   });
   app.use(
@@ -47,29 +75,56 @@ export function buildApp() {
   );
   app.use(express.json({ limit: '1mb' }));
 
-  if (config.env === 'development' && !config.isTest) {
-    app.use((req, res, next) => {
-      const started = Date.now();
-      res.on('finish', () => {
-        if (req.path.startsWith('/api')) {
-          console.log(`${req.method} ${req.originalUrl} → ${res.statusCode} (${Date.now() - started}ms)`);
-        }
-      });
-      next();
-    });
-  }
-
   app.get(
     '/api/health',
     asyncRoute(async (req, res) => {
+      const started = Date.now();
+      let database = 'up';
+      let latencyMs = null;
       try {
         await prisma.$queryRaw`SELECT 1`;
-        res.json({ ok: true, service: 'KCIC Fleet & Driver Management API', environment: config.env, database: 'up', time: new Date().toISOString() });
-      } catch {
-        res.status(503).json({ ok: false, service: 'KCIC Fleet & Driver Management API', database: 'down' });
+        latencyMs = Date.now() - started;
+      } catch (err) {
+        database = 'down';
+        logger.error('health_database_check_failed', { requestId: req.id, error: err.message });
       }
+      const simulator = gpsSimulatorStatus();
+      const payload = {
+        ok: database === 'up',
+        service: 'KCIC Fleet & Driver Management API',
+        environment: config.env,
+        database,
+        time: new Date().toISOString(),
+        checks: {
+          database: { status: database, latencyMs },
+          gpsSimulator: {
+            status: simulator.enabled ? (simulator.lastError ? 'error' : 'running') : 'disabled',
+            mode: 'DEMO_SIMULATOR',
+            intervalMs: simulator.intervalMs,
+            lastTickAgeSeconds: simulator.lastTickAgeSeconds,
+            lastError: simulator.lastError,
+          },
+        },
+        uptimeSeconds: Math.round(process.uptime()),
+      };
+      res.status(database === 'up' ? 200 : 503).json(payload);
     })
   );
+
+  app.get('/api/metrics', (req, res) => {
+    if (!config.metricsToken) {
+      res.status(404).json({ error: 'Endpoint tidak ditemukan' });
+      return;
+    }
+    const provided = req.get('x-metrics-token') || '';
+    const a = Buffer.from(provided);
+    const b = Buffer.from(config.metricsToken);
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+      res.status(401).json({ error: 'Token metrik tidak valid' });
+      return;
+    }
+    res.type('text/plain; version=0.0.4').send(renderMetrics());
+  });
 
   app.use('/api/auth', authRoutes);
   app.use('/api/dashboard', requireAuth, dashboardRoutes);
@@ -81,6 +136,7 @@ export function buildApp() {
   app.use('/api/emergency', requireAuth, emergencyRoutes);
   app.use('/api/trips', requireAuth, tripRoutes);
   app.use('/api/maintenance', requireAuth, maintenanceRoutes);
+  app.use('/api/gps/ingest', gpsIngestRoutes);
   app.use('/api/gps', requireAuth, gpsRoutes);
   app.use('/api/audit', requireAuth, auditRoutes);
   app.use('/api/users', requireAuth, userRoutes);

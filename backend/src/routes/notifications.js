@@ -2,7 +2,10 @@ import express from 'express';
 import { prisma } from '../db.js';
 import { HttpError, asyncRoute, paged, pagination } from '../lib/http.js';
 import { NOTIFICATION_TYPE_LABELS, enabledNotificationTypes, refreshUserNotifications } from '../lib/notifications.js';
+import { channelStates } from '../lib/notificationChannels.js';
+import { requirePermission } from '../lib/permissions.js';
 import { subscribeUser } from '../lib/events.js';
+import { logger } from '../lib/logger.js';
 
 const router = express.Router();
 const SSE_HEARTBEAT_MS = 25000;
@@ -36,7 +39,7 @@ router.get('/stream', async (req, res) => {
       if (closed) return;
       res.write(`event: unread\ndata: ${JSON.stringify({ unreadCount, at: Date.now() })}\n\n`);
     } catch (err) {
-      console.error('[sse] notification stream failed', err.message);
+      logger.error('notification_stream_failed', { requestId: req.id, error: err.message });
     }
   };
 
@@ -94,6 +97,30 @@ router.post('/read-all', asyncRoute(async (req, res) => {
     data: { readAt: new Date() },
   });
   res.json({ ok: true, updated: result.count });
+}));
+
+router.get('/channels', requirePermission('audit:read'), asyncRoute(async (req, res) => {
+  res.json({ channels: channelStates(), inApp: { enabled: true } });
+}));
+
+router.get('/deliveries', requirePermission('audit:read'), asyncRoute(async (req, res) => {
+  const page = pagination(req, { defaultPageSize: 30, maxPageSize: 200 });
+  const { channel, status } = req.query;
+  const where = {
+    ...(channel && channel !== 'ALL' ? { channel } : {}),
+    ...(status && status !== 'ALL' ? { status } : {}),
+  };
+  const [items, total] = await Promise.all([
+    prisma.notificationDelivery.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      skip: page.skip,
+      take: page.take,
+      include: { notification: { select: { id: true, type: true, title: true, userId: true } } },
+    }),
+    prisma.notificationDelivery.count({ where }),
+  ]);
+  res.json({ ...paged(items, total, page), channels: channelStates() });
 }));
 
 router.patch('/:id/read', asyncRoute(async (req, res) => {

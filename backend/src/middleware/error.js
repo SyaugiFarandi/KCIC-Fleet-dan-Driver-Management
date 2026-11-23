@@ -2,6 +2,7 @@ import { ZodError } from 'zod';
 import { Prisma } from '@prisma/client';
 import { HttpError } from '../lib/http.js';
 import { config } from '../config.js';
+import { logger } from '../lib/logger.js';
 
 export function notFound(req, res) {
   res.status(404).json({ error: 'Endpoint tidak ditemukan' });
@@ -28,7 +29,17 @@ export function errorHandler(err, req, res, next) {
     if (err.code === 'P2003') return res.status(409).json({ error: 'Data masih direferensikan oleh data lain' });
   }
 
-  if (!config.isTest) console.error('[server-error]', err);
+  if (!config.isTest) {
+    logger.error('request_failed', {
+      requestId: req.id,
+      method: req.method,
+      path: `${req.baseUrl || ''}${req.path}`,
+      userId: req.user?.id ?? null,
+      errorName: err?.name,
+      errorMessage: err?.message,
+      stack: err?.stack,
+    });
+  }
   res.status(500).json({
     error: 'Terjadi kesalahan pada server',
     ...(config.env === 'development' && !config.isTest ? { detail: err.message } : {}),

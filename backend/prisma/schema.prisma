@@ -472,8 +472,29 @@ model Notification {
   readAt    DateTime?
   createdAt DateTime  @default(now())
 
+  deliveries NotificationDelivery[]
+
   @@index([userId, readAt])
   @@index([userId, createdAt])
+}
+
+model NotificationDelivery {
+  id             String        @id @default(cuid())
+  notificationId String?
+  notification   Notification? @relation(fields: [notificationId], references: [id], onDelete: SetNull)
+  userId         String?
+  channel        String
+  status         String        @default("PENDING")
+  target         String?
+  attempts       Int           @default(0)
+  detail         String?
+  sentAt         DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@index([channel, status])
+  @@index([userId, createdAt])
+  @@index([notificationId])
 }
 
 model Geofence {

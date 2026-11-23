@@ -2,6 +2,8 @@ import { prisma } from '../db.js';
 import { ROLES } from './permissions.js';
 import { publishNotification } from './events.js';
 import { buildPredictions } from './maintenancePrediction.js';
+import { dispatchNotificationDelivery, hasEnabledChannels } from './notificationChannels.js';
+import { logger } from './logger.js';
 
 const STAFF_ROLES = ROLES.filter((role) => role !== 'DRIVER' && role !== 'CREW_EMPLOYEE');
 
@@ -40,9 +42,13 @@ export async function notify({ userId, type, title, message, link = null }) {
   try {
     const item = await prisma.notification.create({ data: { userId, type, title, message, link } });
     publishNotification([userId]);
+    if (hasEnabledChannels()) {
+      const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, email: true } });
+      if (user) dispatchNotificationDelivery({ notification: item, user });
+    }
     return item;
   } catch (err) {
-    console.error('[notify] failed to create notification', type, err.message);
+    logger.error('notification_create_failed', { type, error: err.message });
     return null;
   }
 }
@@ -51,16 +57,19 @@ export async function notifyStaff({ type, title, message, link = null }) {
   try {
     const staff = await prisma.user.findMany({
       where: { active: true, role: { in: STAFF_ROLES } },
-      select: { id: true },
+      select: { id: true, email: true },
     });
     if (!staff.length) return 0;
-    await prisma.notification.createMany({
-      data: staff.map((user) => ({ userId: user.id, type, title, message, link })),
-    });
+    const created = await Promise.all(
+      staff.map((user) => prisma.notification.create({ data: { userId: user.id, type, title, message, link } }))
+    );
     publishNotification(staff.map((user) => user.id));
+    if (hasEnabledChannels()) {
+      created.forEach((item, index) => dispatchNotificationDelivery({ notification: item, user: staff[index] }));
+    }
     return staff.length;
   } catch (err) {
-    console.error('[notify] failed to broadcast staff notification', type, err.message);
+    logger.error('notification_broadcast_failed', { type, error: err.message });
     return 0;
   }
 }
@@ -209,7 +218,7 @@ export async function refreshUserNotifications(user) {
     publishNotification([user.id]);
     return pending.length;
   } catch (err) {
-    console.error('[notify] failed to create reminder sweep', err.message);
+    logger.error('notification_reminder_sweep_failed', { error: err.message });
     return 0;
   }
 }

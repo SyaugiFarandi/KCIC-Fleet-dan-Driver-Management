@@ -15,3 +15,9 @@ yarn-error.log*
 Thumbs.db
 .vscode/
 .idea/
+
+deploy/certs/*
+!deploy/certs/README.md
+
+# local database backups
+backups/

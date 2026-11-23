@@ -15,7 +15,8 @@ constraints; **NOT IMPLEMENTED** = not built.
 
 - All menus are functional and backed by real API + PostgreSQL data (no decorative buttons).
 - Role restrictions are enforced server-side; frontend hides menus only as convenience.
-- Automated API suite: **67 tests, 67 passing** (`cd backend && npm test`).
+- Automated API suite: **102 tests, 102 passing** (`cd backend && npm test`; see
+  `docs/PRODUCTION_BLOCKER_REMEDIATION.md` for the remediation-era suites).
 - Frontend production build: **passing** (`cd frontend && npm run build`).
 - Docker Compose stack starts db → api (migrate + seed) → web; verified end to end.
 
@@ -95,7 +96,8 @@ stylesheet layer; no framework swap, brand palette kept).
 
 ## Enterprise phases A–K verification log (2026-11-23, dev stack)
 
-- `cd backend && npm test` → **67 tests, 67 pass, 0 fail** (~19 s). New
+- `cd backend && npm test` → **67 tests, 67 pass, 0 fail** (~19 s; suite grew to 102 after the
+  production-blocker remediation tests). New
   `test/enterprise.test.js` (8 tests) covers route recommendations, emergency transport,
   inspection → defect, maintenance prediction → work order, driver fuel anomaly + review,
   SLA contracts/scorecard, intelligence KPIs/data quality/widgets and the read-only

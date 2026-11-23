@@ -3,6 +3,14 @@ import bcrypt from 'bcryptjs';
 import { DEMO_GPS_SOURCE, GEOFENCE_SEED, parkedPoint, routePoint } from '../src/lib/gps.js';
 import { TRIP_CHECKLIST_ITEMS } from '../src/lib/checklist.js';
 
+if (process.env.NODE_ENV === 'production' && process.env.ALLOW_DEMO_SEED !== 'true') {
+  console.error(
+    '[seed] Ditolak: demo seed tidak boleh berjalan pada production tanpa ALLOW_DEMO_SEED=true. ' +
+      'Jalankan seed hanya untuk demo/staging secara eksplisit.'
+  );
+  process.exit(1);
+}
+
 const prisma = new PrismaClient();
 const PASSWORD = process.env.SEED_PASSWORD || 'Demo123!';
 const now = Date.now();

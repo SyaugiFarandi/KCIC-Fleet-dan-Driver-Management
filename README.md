@@ -9,7 +9,7 @@ audit trail, role-based access control, and a DEMO GPS monitoring module.
 
 ## Stack
 
-- Frontend: React 18 + Vite 5 (lazy-loaded routes), Leaflet 1.9 + OpenStreetMap (GPS map),
+- Frontend: React 18 + Vite 7 (lazy-loaded routes), Leaflet 1.9 + OpenStreetMap (GPS map),
   custom CSS with design tokens, light/dark themes via `data-theme` tokens, visible focus
   states, skip link, focus-trapped modals, reduced-motion support, installable PWA
   (manifest + service worker with offline fallback)
@@ -17,7 +17,7 @@ audit trail, role-based access control, and a DEMO GPS monitoring module.
   session (Bearer token still accepted for API tests/tooling), Server-Sent Events for
   live notifications and GPS positions
 - Database: PostgreSQL 16
-- Tests: node:test + supertest (67 automated API/integration tests)
+- Tests: node:test + supertest (102 automated API/integration tests)
 - Packaging: Docker Compose (PostgreSQL + API + Nginx-served frontend)
 
 ## Run with Docker (recommended)
@@ -35,8 +35,27 @@ docker compose up --build
 
 Host ports are configurable via `DB_PORT`, `API_PORT`, `WEB_PORT` in `.env`.
 
-On start the API container runs `prisma generate`, `prisma migrate deploy`, the idempotent
-seed, then the server. Seeding is safe to re-run.
+This default stack is the **demo** stack: on start the API container runs `prisma generate`,
+`prisma migrate deploy`, the idempotent demo seed, then the server. Seeding is safe to re-run
+and requires `ALLOW_DEMO_SEED=true` (set explicitly by the demo compose file).
+
+### Production boot (no demo seed)
+
+```bash
+JWT_SECRET=... CORS_ORIGIN=https://fleet.example.com \
+  docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+```
+
+The production overlay never seeds on boot: it runs `prisma generate` +
+`prisma migrate deploy` only. To seed a staging/demo database explicitly:
+
+```bash
+ALLOW_DEMO_SEED=true docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+  --profile seed run --rm seed
+```
+
+`prisma/seed.js` refuses to run under `NODE_ENV=production` unless `ALLOW_DEMO_SEED=true`.
+See `docs/DEPLOYMENT_CHECKLIST.md` for the full HTTPS/production procedure.
 
 ## Demo accounts
 
@@ -69,7 +88,7 @@ export DATABASE_URL="postgresql://fleet:fleet_demo_password@localhost:5544/fleet
 export JWT_SECRET="dev-local-secret"
 npx prisma generate
 npx prisma migrate deploy
-node prisma/seed.js
+npm run seed
 npm run dev
 
 # 3) frontend (http://localhost:5180, proxies /api to :4010)
@@ -172,6 +191,10 @@ inspection, maintenance, fuel), **Intelligence** (reports, Fleet Intelligence) a
   persistent DEMO GPS banner. **The app never claims these are real vehicle locations.**
 - Moving vehicles follow the route of their active trip; parked vehicles stay at a
   deterministic spot near their base. No GPS hardware, vendor API, or KCIC system is used.
+- Telemetry is classified per vehicle as `SIMULATED`, `LIVE`, `STALE`, or `OFFLINE`. `LIVE`
+  requires fresh data from a registered ACTIVE device via the token-gated
+  `POST /api/gps/ingest` webhook (`GPS_INGEST_TOKEN`); the endpoint returns 404 while unset.
+  Simulator rows are never classified as `LIVE`. See `docs/PRODUCTION_BLOCKER_REMEDIATION.md`.
 
 ## Role-based access control
 
@@ -194,35 +217,48 @@ receive HTTP 403), geofence/device changes and GPS event acknowledgement require
 - Login sets the JWT in an httpOnly, SameSite=Lax cookie (`fleet_session`; `Secure` when
   `NODE_ENV=production`) so client JS cannot read it; CORS allows credentials only for the
   configured origins. Bearer tokens remain supported for the API test suite and tooling.
-  Production still needs HTTPS/HSTS and externalized secrets.
+- Production startup rejects a missing/short/placeholder `JWT_SECRET`, wildcard `CORS_ORIGIN`,
+  and non-Secure cookies (unless `ALLOW_INSECURE_HTTP=true` for local demo). The production
+  compose overlay adds HTTPS termination, HSTS and `COOKIE_SECURE=true`; a real certificate
+  still has to be supplied at deploy time.
+- Structured JSON logs, `X-Request-Id` correlation, `/api/health` (DB + simulator) and a
+  token-gated Prometheus `/api/metrics` endpoint are available; see
+  `docs/OBSERVABILITY_GUIDE.md`. Secrets are redacted and never logged.
 
 ## Tests
 
 ```bash
 cd backend
-npm test    # resets the fleet_test DB, seeds fixtures, runs 67 API/integration tests
+npm test    # resets the fleet_test DB, seeds fixtures, runs 102 API/integration tests
 ```
 
-Covers auth, RBAC (403 checks per role), booking/approval/dispatch/trip workflow,
-maintenance lifecycle, master data CRUD + validation, users, GPS
-(positions/filters/detail/history/replay/events/geofence/device CRUD, demo metadata), the
-UX enhancements (cookie-session auth, series-wide cancel, notification preferences, vehicle
-checklist templates, Excel export), and the enterprise modules (fuel with anomaly review,
-digital inspection templates/defects, predictive maintenance + work orders, emergency
-transport decisions, route recommendations, SLA scorecards, intelligence KPIs/data quality,
-read-only assistant). See `docs/TESTING.md` for the per-file breakdown.
+Covers auth, RBAC (403 checks per role), config production guards, seed guard, booking/
+approval/dispatch/trip workflow, concurrent assignment locking, maintenance lifecycle, master
+data CRUD + validation, users, GPS (positions/filters/detail/history/replay/events/geofence/
+device CRUD, demo metadata, token-gated device ingest and telemetry status), notification
+channels (retry, masking, delivery history, disabled/configured guards), observability
+(structured logs, health, token-gated metrics), the UX enhancements (cookie-session auth,
+series-wide cancel, notification preferences, vehicle checklist templates, Excel export), and
+the enterprise modules (fuel with anomaly review, digital inspection templates/defects,
+predictive maintenance + work orders, emergency transport decisions, route recommendations,
+SLA scorecards, intelligence KPIs/data quality, read-only assistant).
+See `docs/TESTING.md` for the per-file breakdown.
 
 Frontend production build: `cd frontend && npm run build`.
 
 ## Known limitations (honest list)
 
-- Synthetic data only; no KCIC production systems, SSO, email/SMS, or vendor contracts.
-- GPS is a demo simulator; no real tracking device integration.
-- Dispatch conflict checks cover basic overlap/availability, not calendar-wide
-  optimization or concurrency locking.
+- Synthetic data only; no KCIC production systems, SSO, or vendor contracts.
+- GPS remains a demo simulator: no real device/provider is configured or tested. A token-gated
+  ingest webhook and `SIMULATED`/`LIVE`/`STALE`/`OFFLINE` classification are ready, but `LIVE`
+  only appears when a registered ACTIVE device actually sends fresh data.
+- Dispatch conflict checks cover basic overlap/availability, not calendar-wide optimization.
+  Concurrent assignments are serialized with PostgreSQL advisory locks and `FOR UPDATE`.
 - Geofence enter/exit events are generated by the simulator for demonstration.
-- Notifications are in-app only (no email/WhatsApp/Telegram delivery); document and
-  maintenance reminders are generated by a sweep on notification reads/polls.
+- Notifications are in-app by default. Email/Telegram adapters are opt-in, require valid
+  credentials at startup, retry up to 3 times, and record masked delivery history; no external
+  message is sent while the channels are disabled (the default here).
+- Document and maintenance reminders are generated by a sweep on notification reads/polls.
 - Recurring bookings create independent bookings linked by `seriesId`; the series can be
   cancelled as a whole from the booking detail, but editing one occurrence still does not
   cascade to the rest of the series.
@@ -239,9 +275,17 @@ Frontend production build: `cd frontend && npm run build`.
 - Driver offline queue covers trip status updates (the critical field action); inspection and
   fuel submissions require connectivity. Conflicts on sync (404/409) are surfaced and the
   queued item is discarded rather than retried forever.
-- Dispatch conflict checks are transactional per assignment, but there is no database-level
-  advisory locking across concurrent dispatchers.
 - This is a functional local demo, not a production-approved KCIC system.
 
 See `docs/AUDIT_REPORT.md` for the per-area implementation status and
 `docs/ENTERPRISE_MODULES.md` for the A–K module reference.
+
+Production readiness was reviewed and remediated in dedicated documents:
+`docs/PRODUCTION_READINESS_AUDIT.md`, `docs/SECURITY_AUDIT.md`,
+`docs/PRODUCTION_BLOCKER_REMEDIATION.md` (status of every blocker with test evidence),
+`docs/DEPLOYMENT_CHECKLIST.md` (env matrix, smoke tests, backup/restore, rollback, go/no-go),
+plus `docs/BACKUP_RESTORE_RUNBOOK.md` and `docs/OBSERVABILITY_GUIDE.md`.
+Verdict: **READY FOR STAGING / internal demo** with synthetic data and restricted access;
+**NOT READY FOR PRODUCTION** until TLS certificates, managed database/backup scheduling,
+real integration credentials, load testing and multi-instance scaling are handled at the
+target infrastructure.
