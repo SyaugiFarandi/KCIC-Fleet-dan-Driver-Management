@@ -53,6 +53,82 @@ enum MaintenanceStatus {
   CANCELLED
 }
 
+enum MaintenanceKind {
+  PREVENTIVE
+  CORRECTIVE
+  INSPECTION
+}
+
+enum MaintenancePriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum BookingPriority {
+  NORMAL
+  EMERGENCY
+}
+
+enum InspectionType {
+  PRE_TRIP
+  POST_TRIP
+  RELEASE
+}
+
+enum InspectionStatus {
+  DRAFT
+  PASSED
+  DEFECTS
+  FAILED
+}
+
+enum DefectSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum DefectStatus {
+  OPEN
+  IN_REPAIR
+  RESOLVED
+}
+
+enum FuelPaymentMethod {
+  FUEL_CARD
+  VENDOR_CARD
+  CASH
+  TRANSFER
+}
+
+enum FuelAnomalyStatus {
+  NONE
+  FLAGGED
+  APPROVED
+}
+
+enum ContractStatus {
+  ACTIVE
+  EXPIRED
+  TERMINATED
+}
+
+enum SlaMetric {
+  ON_TIME_DEPARTURE
+  TRIP_COMPLETION
+  AVAILABILITY
+  RESPONSE_TIME
+}
+
+enum RoutePointKind {
+  PICKUP
+  DROP_OFF
+  WAYPOINT
+}
+
 enum Ownership {
   KCIC
   VENDOR
@@ -77,27 +153,34 @@ enum GpsEventType {
 }
 
 model User {
-  id            String    @id @default(cuid())
-  name          String
-  email         String    @unique
-  passwordHash  String
-  role          Role
-  department    String?
-  phone         String?
-  active        Boolean   @default(true)
+  id                String   @id @default(cuid())
+  name              String
+  email             String   @unique
+  passwordHash      String
+  role              Role
+  department        String?
+  phone             String?
+  active            Boolean  @default(true)
   notificationPrefs Json?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  dashboardPrefs    Json?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
-  bookings         Booking[]     @relation("Requester")
-  decisions        Booking[]     @relation("BookingDecider")
-  assignedTrips    Trip[]        @relation("TripAssigner")
-  tripEvents       TripEvent[]
-  driverProfile    Driver?
-  auditLogs        AuditLog[]
-  maintenanceItems Maintenance[] @relation("MaintenanceCreator")
-  notifications    Notification[]
-  gpsEventAcks     GpsEvent[]    @relation("GpsEventAck")
+  bookings              Booking[]         @relation("Requester")
+  decisions             Booking[]         @relation("BookingDecider")
+  assignedTrips         Trip[]            @relation("TripAssigner")
+  tripEvents            TripEvent[]
+  driverProfile         Driver?
+  auditLogs             AuditLog[]
+  maintenanceItems      Maintenance[]     @relation("MaintenanceCreator")
+  maintenanceRequests   Maintenance[]     @relation("MaintenanceRequester")
+  notifications         Notification[]
+  gpsEventAcks          GpsEvent[]        @relation("GpsEventAck")
+  inspectionStarts      Inspection[]      @relation("InspectionStarter")
+  inspectionCompletions Inspection[]      @relation("InspectionCompleter")
+  defectsReported       Defect[]          @relation("DefectReporter")
+  fuelLogs              FuelTransaction[] @relation("FuelLogger")
+  fuelReviews           FuelTransaction[] @relation("FuelReviewer")
 }
 
 model Vendor {
@@ -111,37 +194,43 @@ model Vendor {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  vehicles Vehicle[]
-  drivers  Driver[]
+  vehicles  Vehicle[]
+  drivers   Driver[]
+  contracts VendorContract[]
 }
 
 model Vehicle {
-  id            String        @id @default(cuid())
-  plateNumber   String        @unique
-  brand         String
-  model         String
-  category      String
-  capacity      Int
-  ownership     Ownership     @default(KCIC)
-  year          Int?
-  color         String?
-  status        VehicleStatus @default(AVAILABLE)
-  odometerKm    Int?
-  lastServiceAt DateTime?
-  stnkExpiry      DateTime?
-  insuranceExpiry DateTime?
-  checklistTemplate Json?
-  notes         String?
-  vendorId      String?
-  vendor        Vendor?       @relation(fields: [vendorId], references: [id])
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+  id                  String        @id @default(cuid())
+  plateNumber         String        @unique
+  brand               String
+  model               String
+  category            String
+  capacity            Int
+  ownership           Ownership     @default(KCIC)
+  year                Int?
+  color               String?
+  status              VehicleStatus @default(AVAILABLE)
+  odometerKm          Int?
+  lastServiceAt       DateTime?
+  serviceIntervalKm   Int?          @default(10000)
+  serviceIntervalDays Int?          @default(180)
+  stnkExpiry          DateTime?
+  insuranceExpiry     DateTime?
+  checklistTemplate   Json?
+  notes               String?
+  vendorId            String?
+  vendor              Vendor?       @relation(fields: [vendorId], references: [id])
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
 
-  trips       Trip[]
-  maintenance Maintenance[]
-  gpsDevice   GpsDevice?
-  locations   VehicleLocation[]
-  gpsEvents   GpsEvent[]
+  trips            Trip[]
+  maintenance      Maintenance[]
+  gpsDevice        GpsDevice?
+  locations        VehicleLocation[]
+  gpsEvents        GpsEvent[]
+  inspections      Inspection[]
+  defects          Defect[]
+  fuelTransactions FuelTransaction[]
 
   @@index([status])
   @@index([vendorId])
@@ -165,48 +254,54 @@ model Driver {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  trips Trip[]
+  trips            Trip[]
+  inspections      Inspection[]
+  fuelTransactions FuelTransaction[]
 
   @@index([available])
 }
 
 model Route {
-  id              String   @id @default(cuid())
-  code            String   @unique
-  origin          String
-  destination     String
+  id               String   @id @default(cuid())
+  code             String   @unique
+  origin           String
+  destination      String
   estimatedMinutes Int
-  distanceKm      Float
-  active          Boolean  @default(true)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  distanceKm       Float
+  restrictions     Json?
+  active           Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   bookings Booking[]
+  points   RoutePoint[]
 }
 
 model Booking {
-  id              String        @id @default(cuid())
-  code            String        @unique
+  id              String          @id @default(cuid())
+  code            String          @unique
   requesterId     String
-  requester       User          @relation("Requester", fields: [requesterId], references: [id])
+  requester       User            @relation("Requester", fields: [requesterId], references: [id])
   department      String
   purpose         String
   passengerCount  Int
   origin          String
   destination     String
   routeId         String?
-  route           Route?        @relation(fields: [routeId], references: [id])
+  route           Route?          @relation(fields: [routeId], references: [id])
   departureAt     DateTime
   returnAt        DateTime?
   seriesId        String?
-  status          BookingStatus @default(PENDING)
+  priority        BookingPriority @default(NORMAL)
+  emergencyReason String?
+  status          BookingStatus   @default(PENDING)
   rejectionReason String?
   cancelledReason String?
   decidedById     String?
-  decidedBy       User?         @relation("BookingDecider", fields: [decidedById], references: [id])
+  decidedBy       User?           @relation("BookingDecider", fields: [decidedById], references: [id])
   decidedAt       DateTime?
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
 
   trip Trip?
 
@@ -217,28 +312,30 @@ model Booking {
 }
 
 model Trip {
-  id          String     @id @default(cuid())
-  bookingId   String     @unique
-  booking     Booking    @relation(fields: [bookingId], references: [id])
-  vehicleId   String
-  vehicle     Vehicle    @relation(fields: [vehicleId], references: [id])
-  driverId    String
-  driver      Driver     @relation(fields: [driverId], references: [id])
-  status      TripStatus @default(SCHEDULED)
+  id           String     @id @default(cuid())
+  bookingId    String     @unique
+  booking      Booking    @relation(fields: [bookingId], references: [id])
+  vehicleId    String
+  vehicle      Vehicle    @relation(fields: [vehicleId], references: [id])
+  driverId     String
+  driver       Driver     @relation(fields: [driverId], references: [id])
+  status       TripStatus @default(SCHEDULED)
   assignedById String?
-  assignedBy  User?      @relation("TripAssigner", fields: [assignedById], references: [id])
-  assignedAt  DateTime   @default(now())
-  acceptedAt  DateTime?
-  startedAt   DateTime?
-  completedAt DateTime?
-  cancelledAt DateTime?
-  notes       String?
-  checklist   Json?
-  updatedAt   DateTime   @updatedAt
+  assignedBy   User?      @relation("TripAssigner", fields: [assignedById], references: [id])
+  assignedAt   DateTime   @default(now())
+  acceptedAt   DateTime?
+  startedAt    DateTime?
+  completedAt  DateTime?
+  cancelledAt  DateTime?
+  notes        String?
+  checklist    Json?
+  updatedAt    DateTime   @updatedAt
 
-  events TripEvent[]
-  locations VehicleLocation[]
-  gpsEvents GpsEvent[]
+  events           TripEvent[]
+  locations        VehicleLocation[]
+  gpsEvents        GpsEvent[]
+  inspections      Inspection[]
+  fuelTransactions FuelTransaction[]
 
   @@index([status])
   @@index([vehicleId])
@@ -259,20 +356,26 @@ model TripEvent {
 }
 
 model Maintenance {
-  id          String            @id @default(cuid())
-  vehicleId   String
-  vehicle     Vehicle           @relation(fields: [vehicleId], references: [id])
-  title       String
-  description String            @default("")
-  scheduledAt DateTime
-  status      MaintenanceStatus @default(PLANNED)
-  cost        Float             @default(0)
-  startedAt   DateTime?
-  completedAt DateTime?
-  createdById String?
-  createdBy   User?             @relation("MaintenanceCreator", fields: [createdById], references: [id])
-  createdAt   DateTime          @default(now())
-  updatedAt   DateTime          @updatedAt
+  id            String              @id @default(cuid())
+  vehicleId     String
+  vehicle       Vehicle             @relation(fields: [vehicleId], references: [id])
+  title         String
+  description   String              @default("")
+  scheduledAt   DateTime
+  kind          MaintenanceKind     @default(PREVENTIVE)
+  priority      MaintenancePriority @default(NORMAL)
+  status        MaintenanceStatus   @default(PLANNED)
+  cost          Float               @default(0)
+  startedAt     DateTime?
+  completedAt   DateTime?
+  createdById   String?
+  createdBy     User?               @relation("MaintenanceCreator", fields: [createdById], references: [id])
+  requestedById String?
+  requestedBy   User?               @relation("MaintenanceRequester", fields: [requestedById], references: [id])
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  defects Defect[]
 
   @@index([status])
   @@index([vehicleId])
@@ -311,21 +414,21 @@ model GpsDevice {
 }
 
 model VehicleLocation {
-  id         String       @id @default(cuid())
+  id         String     @id @default(cuid())
   vehicleId  String
-  vehicle    Vehicle      @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  vehicle    Vehicle    @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
   deviceId   String?
-  device     GpsDevice?   @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  device     GpsDevice? @relation(fields: [deviceId], references: [id], onDelete: SetNull)
   tripId     String?
-  trip       Trip?        @relation(fields: [tripId], references: [id], onDelete: SetNull)
+  trip       Trip?      @relation(fields: [tripId], references: [id], onDelete: SetNull)
   lat        Float
   lng        Float
-  speedKph   Float        @default(0)
+  speedKph   Float      @default(0)
   heading    Float?
-  ignition   Boolean      @default(true)
+  ignition   Boolean    @default(true)
   accuracyM  Float?
-  source     String       @default("DEMO_SIMULATOR")
-  recordedAt DateTime     @default(now())
+  source     String     @default("DEMO_SIMULATOR")
+  recordedAt DateTime   @default(now())
 
   @@index([vehicleId, recordedAt])
   @@index([tripId, recordedAt])
@@ -333,25 +436,25 @@ model VehicleLocation {
 }
 
 model GpsEvent {
-  id         String       @id @default(cuid())
-  vehicleId  String
-  vehicle    Vehicle      @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
-  deviceId   String?
-  device     GpsDevice?   @relation(fields: [deviceId], references: [id], onDelete: SetNull)
-  tripId     String?
-  trip       Trip?        @relation(fields: [tripId], references: [id], onDelete: SetNull)
-  geofenceId String?
-  geofence   Geofence?    @relation(fields: [geofenceId], references: [id], onDelete: SetNull)
-  type       GpsEventType
-  message    String
-  lat        Float?
-  lng        Float?
-  speedKph   Float?
-  source     String       @default("DEMO_SIMULATOR")
-  occurredAt DateTime     @default(now())
+  id               String       @id @default(cuid())
+  vehicleId        String
+  vehicle          Vehicle      @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  deviceId         String?
+  device           GpsDevice?   @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  tripId           String?
+  trip             Trip?        @relation(fields: [tripId], references: [id], onDelete: SetNull)
+  geofenceId       String?
+  geofence         Geofence?    @relation(fields: [geofenceId], references: [id], onDelete: SetNull)
+  type             GpsEventType
+  message          String
+  lat              Float?
+  lng              Float?
+  speedKph         Float?
+  source           String       @default("DEMO_SIMULATOR")
+  occurredAt       DateTime     @default(now())
   acknowledgedAt   DateTime?
   acknowledgedById String?
-  acknowledgedBy   User?     @relation("GpsEventAck", fields: [acknowledgedById], references: [id], onDelete: SetNull)
+  acknowledgedBy   User?        @relation("GpsEventAck", fields: [acknowledgedById], references: [id], onDelete: SetNull)
 
   @@index([vehicleId, occurredAt])
   @@index([type])
@@ -386,4 +489,178 @@ model Geofence {
   updatedAt DateTime @updatedAt
 
   events GpsEvent[]
+}
+
+model InspectionTemplate {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String   @default("")
+  category    String   @default("GENERAL")
+  items       Json
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  inspections Inspection[]
+}
+
+model Inspection {
+  id            String              @id @default(cuid())
+  vehicleId     String
+  vehicle       Vehicle             @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  driverId      String?
+  driver        Driver?             @relation(fields: [driverId], references: [id], onDelete: SetNull)
+  tripId        String?
+  trip          Trip?               @relation(fields: [tripId], references: [id], onDelete: SetNull)
+  templateId    String?
+  template      InspectionTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  type          InspectionType      @default(PRE_TRIP)
+  status        InspectionStatus    @default(DRAFT)
+  odometerKm    Int?
+  notes         String              @default("")
+  startedById   String?
+  startedBy     User?               @relation("InspectionStarter", fields: [startedById], references: [id], onDelete: SetNull)
+  completedById String?
+  completedBy   User?               @relation("InspectionCompleter", fields: [completedById], references: [id], onDelete: SetNull)
+  completedAt   DateTime?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  items   InspectionItem[]
+  defects Defect[]
+
+  @@index([vehicleId, createdAt])
+  @@index([status])
+  @@index([type])
+}
+
+model InspectionItem {
+  id           String     @id @default(cuid())
+  inspectionId String
+  inspection   Inspection @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+  key          String
+  label        String
+  critical     Boolean    @default(false)
+  checked      Boolean    @default(false)
+  note         String?    @default("")
+
+  @@unique([inspectionId, key])
+}
+
+model Defect {
+  id             String         @id @default(cuid())
+  vehicleId      String
+  vehicle        Vehicle        @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  inspectionId   String?
+  inspection     Inspection?    @relation(fields: [inspectionId], references: [id], onDelete: SetNull)
+  maintenanceId  String?
+  maintenance    Maintenance?   @relation(fields: [maintenanceId], references: [id], onDelete: SetNull)
+  title          String
+  description    String         @default("")
+  severity       DefectSeverity @default(MEDIUM)
+  status         DefectStatus   @default(OPEN)
+  reportedById   String?
+  reportedBy     User?          @relation("DefectReporter", fields: [reportedById], references: [id], onDelete: SetNull)
+  reportedAt     DateTime       @default(now())
+  resolvedAt     DateTime?
+  resolutionNote String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  @@index([vehicleId, status])
+  @@index([severity])
+  @@index([status])
+}
+
+model FuelPrice {
+  id            String   @id @default(cuid())
+  fuelType      String   @unique
+  pricePerLiter Float
+  effectiveFrom DateTime @default(now())
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model FuelTransaction {
+  id            String            @id @default(cuid())
+  vehicleId     String
+  vehicle       Vehicle           @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  driverId      String?
+  driver        Driver?           @relation(fields: [driverId], references: [id], onDelete: SetNull)
+  tripId        String?
+  trip          Trip?             @relation(fields: [tripId], references: [id], onDelete: SetNull)
+  fuelType      String            @default("BIOSOLAR")
+  transactionAt DateTime          @default(now())
+  liters        Float
+  pricePerLiter Float
+  totalCost     Float
+  odometerKm    Int?
+  paymentMethod FuelPaymentMethod @default(FUEL_CARD)
+  cardRef       String?
+  station       String?
+  anomalyStatus FuelAnomalyStatus @default(NONE)
+  anomalyNote   String?
+  reviewedById  String?
+  reviewedBy    User?             @relation("FuelReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedAt    DateTime?
+  createdById   String?
+  createdBy     User?             @relation("FuelLogger", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  @@index([vehicleId, transactionAt])
+  @@index([anomalyStatus])
+  @@index([transactionAt])
+}
+
+model VendorContract {
+  id             String         @id @default(cuid())
+  vendorId       String
+  vendor         Vendor         @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  contractNumber String         @unique
+  serviceScope   String         @default("")
+  startDate      DateTime
+  endDate        DateTime
+  monthlyValue   Float?
+  status         ContractStatus @default(ACTIVE)
+  documentRef    String?
+  notes          String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  slaDefinitions SlaDefinition[]
+
+  @@index([vendorId])
+  @@index([status])
+  @@index([endDate])
+}
+
+model SlaDefinition {
+  id         String         @id @default(cuid())
+  contractId String
+  contract   VendorContract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  metric     SlaMetric
+  target     Float
+  unit       String         @default("%")
+  notes      String?
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+
+  @@unique([contractId, metric])
+}
+
+model RoutePoint {
+  id       String         @id @default(cuid())
+  routeId  String
+  route    Route          @relation(fields: [routeId], references: [id], onDelete: Cascade)
+  name     String
+  kind     RoutePointKind @default(WAYPOINT)
+  lat      Float
+  lng      Float
+  sequence Int
+  notes    String?
+
+  @@unique([routeId, sequence])
+  @@index([routeId])
 }

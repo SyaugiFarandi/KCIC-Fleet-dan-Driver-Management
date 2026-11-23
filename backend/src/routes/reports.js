@@ -26,6 +26,17 @@ function parseRange(query) {
 
 const iso = (value) => (value ? new Date(value).toISOString() : '');
 
+function minutesBetween(from, to) {
+  if (!from || !to) return null;
+  return Math.max(0, Math.round((new Date(to).getTime() - new Date(from).getTime()) / 60000));
+}
+
+function average(values) {
+  const filled = values.filter((value) => typeof value === 'number' && Number.isFinite(value));
+  if (!filled.length) return null;
+  return Math.round(filled.reduce((sum, value) => sum + value, 0) / filled.length);
+}
+
 async function loadReport(from, to) {
   const [bookings, maintenance, vehicles] = await Promise.all([
     prisma.booking.findMany({
@@ -144,6 +155,27 @@ async function loadReport(from, to) {
   const approvedOrDone = bookingStatus.APPROVED + bookingStatus.ASSIGNED + bookingStatus.COMPLETED;
   const vehiclesWithTrips = perVehicle.filter((vehicle) => vehicle.trips > 0).length;
 
+  const emergencyBookings = bookings.filter((booking) => booking.priority === 'EMERGENCY');
+  const emergencyByStatus = Object.fromEntries(BOOKING_STATUSES.map((status) => [status, 0]));
+  for (const booking of emergencyBookings) emergencyByStatus[booking.status] = (emergencyByStatus[booking.status] || 0) + 1;
+  const emergencyAssigned = emergencyBookings.filter((booking) => booking.trip?.assignedAt);
+  const emergency = {
+    total: emergencyBookings.length,
+    pending: emergencyByStatus.PENDING,
+    approved: emergencyByStatus.APPROVED,
+    assigned: emergencyByStatus.ASSIGNED,
+    completed: emergencyByStatus.COMPLETED,
+    rejected: emergencyByStatus.REJECTED,
+    cancelled: emergencyByStatus.CANCELLED,
+    awaitingAssignment: emergencyBookings.filter((booking) => booking.status === 'APPROVED' && !booking.trip).length,
+    avgApprovalMinutes: average(
+      emergencyBookings.filter((booking) => booking.decidedAt).map((booking) => minutesBetween(booking.createdAt, booking.decidedAt))
+    ),
+    avgDispatchMinutes: average(
+      emergencyAssigned.map((booking) => minutesBetween(booking.createdAt, booking.trip.assignedAt))
+    ),
+  };
+
   return {
     range: { from: from.toISOString(), to: to.toISOString() },
     totals: {
@@ -162,6 +194,7 @@ async function loadReport(from, to) {
     },
     bookingStatus,
     tripStatus,
+    emergency,
     perVehicle,
     bookingByDepartment: [...departmentMap.values()].sort((a, b) => b.total - a.total),
     maintenance: maintenance.map((item) => ({
@@ -266,6 +299,21 @@ const DATASETS = {
       { key: 'passengers', label: 'Total Penumpang' },
     ],
   },
+  fuel: {
+    columns: [
+      { key: 'vehicle', label: 'Kendaraan' },
+      { key: 'driver', label: 'Driver' },
+      { key: 'transactionAt', label: 'Waktu Transaksi' },
+      { key: 'fuelType', label: 'Jenis BBM' },
+      { key: 'liters', label: 'Liter' },
+      { key: 'pricePerLiter', label: 'Harga per Liter' },
+      { key: 'totalCost', label: 'Total Biaya' },
+      { key: 'odometerKm', label: 'Odometer (km)' },
+      { key: 'paymentMethod', label: 'Metode Bayar' },
+      { key: 'station', label: 'SPBU' },
+      { key: 'anomalyStatus', label: 'Status Anomali' },
+    ],
+  },
 };
 
 async function datasetRows(dataset, from, to, report) {
@@ -291,6 +339,29 @@ async function datasetRows(dataset, from, to, report) {
   if (dataset === 'trips') return report.trips;
   if (dataset === 'vehicles') return report.perVehicle;
   if (dataset === 'maintenance') return report.maintenance;
+  if (dataset === 'fuel') {
+    const transactions = await prisma.fuelTransaction.findMany({
+      where: { transactionAt: { gte: from, lte: to } },
+      include: {
+        vehicle: { select: { plateNumber: true } },
+        driver: { select: { name: true } },
+      },
+      orderBy: { transactionAt: 'asc' },
+    });
+    return transactions.map((item) => ({
+      vehicle: item.vehicle.plateNumber,
+      driver: item.driver?.name || '',
+      transactionAt: item.transactionAt,
+      fuelType: item.fuelType,
+      liters: item.liters,
+      pricePerLiter: item.pricePerLiter,
+      totalCost: item.totalCost,
+      odometerKm: item.odometerKm,
+      paymentMethod: item.paymentMethod,
+      station: item.station || '',
+      anomalyStatus: item.anomalyStatus,
+    }));
+  }
   return report.bookingByDepartment;
 }
 
@@ -307,6 +378,9 @@ function csvRows(dataset, rows) {
       departureAt: iso(booking.departureAt),
       returnAt: iso(booking.returnAt),
     }));
+  }
+  if (dataset === 'fuel') {
+    return rows.map((item) => ({ ...item, transactionAt: iso(item.transactionAt) }));
   }
   return rows;
 }

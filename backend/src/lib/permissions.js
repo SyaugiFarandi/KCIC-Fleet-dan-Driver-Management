@@ -43,6 +43,7 @@ export const PERMISSIONS = {
   'vendors:read': STAFF,
   'vendors:write': ['SYSTEM_ADMIN', 'FLEET_MANAGER', 'VENDOR_MANAGER'],
   'vendors:delete': ['SYSTEM_ADMIN', 'FLEET_MANAGER'],
+  'vendors:sla': ['SYSTEM_ADMIN', 'FLEET_MANAGER', 'OPERATIONAL_MANAGER', 'VENDOR_MANAGER'],
 
   'routes:read': STAFF,
   'routes:write': ['SYSTEM_ADMIN', 'FLEET_MANAGER', 'TRANSPORT_COORDINATOR', 'FLEET_OFFICER'],
@@ -59,6 +60,22 @@ export const PERMISSIONS = {
   'maintenance:read': STAFF,
   'maintenance:write': ['SYSTEM_ADMIN', 'FLEET_MANAGER', 'MAINTENANCE_OFFICER', 'FLEET_OFFICER'],
   'maintenance:delete': ['SYSTEM_ADMIN', 'FLEET_MANAGER'],
+
+  'inspection:read': [...STAFF, 'DRIVER'],
+  'inspection:write': ['SYSTEM_ADMIN', 'FLEET_MANAGER', 'MAINTENANCE_OFFICER', 'FLEET_OFFICER', 'DRIVER'],
+  'inspection:template': ['SYSTEM_ADMIN', 'FLEET_MANAGER', 'MAINTENANCE_OFFICER', 'FLEET_OFFICER'],
+
+  'fuel:read': STAFF,
+  'fuel:write': ['SYSTEM_ADMIN', 'FLEET_MANAGER', 'OPERATIONAL_MANAGER', 'FLEET_OFFICER'],
+  'fuel:review': ['SYSTEM_ADMIN', 'FLEET_MANAGER', 'OPERATIONAL_MANAGER'],
+  'fuel:submit': ['DRIVER'],
+
+  'emergency:read': [...STAFF, 'CREW_EMPLOYEE'],
+  'emergency:decide': ['SYSTEM_ADMIN', 'FLEET_MANAGER', 'OPERATIONAL_MANAGER', 'DISPATCHER', 'TRANSPORT_COORDINATOR'],
+  'routes:optimize': ['SYSTEM_ADMIN', 'FLEET_MANAGER', 'DISPATCHER', 'TRANSPORT_COORDINATOR', 'FLEET_OFFICER'],
+
+  'intelligence:read': STAFF,
+  'assistant:ask': STAFF,
 
   'gps:read': STAFF,
   'gps:write': ['SYSTEM_ADMIN', 'FLEET_MANAGER', 'FLEET_OFFICER'],

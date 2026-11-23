@@ -12,6 +12,7 @@ import driverRoutes from './routes/drivers.js';
 import vendorRoutes from './routes/vendors.js';
 import routeRoutes from './routes/routes.js';
 import bookingRoutes from './routes/bookings.js';
+import emergencyRoutes from './routes/emergency.js';
 import tripRoutes from './routes/trips.js';
 import maintenanceRoutes from './routes/maintenance.js';
 import gpsRoutes from './routes/gps.js';
@@ -19,6 +20,12 @@ import auditRoutes from './routes/audit.js';
 import userRoutes from './routes/users.js';
 import notificationRoutes from './routes/notifications.js';
 import reportRoutes from './routes/reports.js';
+import fuelRoutes from './routes/fuel.js';
+import inspectionRoutes from './routes/inspections.js';
+import defectRoutes from './routes/defects.js';
+import slaRoutes from './routes/sla.js';
+import intelligenceRoutes from './routes/intelligence.js';
+import assistantRoutes from './routes/assistant.js';
 
 export function buildApp() {
   const app = express();
@@ -71,6 +78,7 @@ export function buildApp() {
   app.use('/api/vendors', requireAuth, vendorRoutes);
   app.use('/api/routes', requireAuth, routeRoutes);
   app.use('/api/bookings', requireAuth, bookingRoutes);
+  app.use('/api/emergency', requireAuth, emergencyRoutes);
   app.use('/api/trips', requireAuth, tripRoutes);
   app.use('/api/maintenance', requireAuth, maintenanceRoutes);
   app.use('/api/gps', requireAuth, gpsRoutes);
@@ -78,6 +86,12 @@ export function buildApp() {
   app.use('/api/users', requireAuth, userRoutes);
   app.use('/api/notifications', requireAuth, notificationRoutes);
   app.use('/api/reports', requireAuth, reportRoutes);
+  app.use('/api/fuel', requireAuth, fuelRoutes);
+  app.use('/api/inspections', requireAuth, inspectionRoutes);
+  app.use('/api/defects', requireAuth, defectRoutes);
+  app.use('/api/sla', requireAuth, slaRoutes);
+  app.use('/api/intelligence', requireAuth, intelligenceRoutes);
+  app.use('/api/assistant', requireAuth, assistantRoutes);
 
   app.use('/api', notFound);
   app.use(errorHandler);

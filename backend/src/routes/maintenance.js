@@ -6,8 +6,12 @@ import { requirePermission } from '../lib/permissions.js';
 import { writeAudit } from '../lib/audit.js';
 import { ACTIVE_TRIP_STATUSES } from '../lib/workflow.js';
 import { refreshVehicleStatus } from '../lib/resourceStatus.js';
+import { buildPredictions, severityPriority } from '../lib/maintenancePrediction.js';
 
 const router = express.Router();
+
+const KINDS = ['PREVENTIVE', 'CORRECTIVE', 'INSPECTION'];
+const PRIORITIES = ['LOW', 'NORMAL', 'HIGH', 'URGENT'];
 
 const createSchema = z.object({
   vehicleId: z.string().trim().min(1, 'Kendaraan wajib dipilih'),
@@ -15,6 +19,9 @@ const createSchema = z.object({
   description: z.string().trim().max(500).optional().nullable(),
   scheduledAt: z.coerce.date({ invalid_type_error: 'Jadwal maintenance tidak valid' }),
   cost: z.coerce.number().min(0, 'Biaya tidak boleh negatif').max(1_000_000_000).optional().default(0),
+  kind: z.enum(KINDS).optional(),
+  priority: z.enum(PRIORITIES).optional(),
+  defectId: z.string().trim().min(1).optional().nullable(),
 });
 
 const updateSchema = z.object({
@@ -22,12 +29,17 @@ const updateSchema = z.object({
   description: z.string().trim().max(500).optional().nullable(),
   scheduledAt: z.coerce.date().optional(),
   cost: z.coerce.number().min(0).max(1_000_000_000).optional(),
+  kind: z.enum(KINDS).optional(),
+  priority: z.enum(PRIORITIES).optional(),
 });
 
 const include = {
   vehicle: { select: { id: true, plateNumber: true, brand: true, model: true, status: true } },
   createdBy: { select: { id: true, name: true } },
+  requestedBy: { select: { id: true, name: true } },
+  defects: { select: { id: true, title: true, severity: true, status: true, inspectionId: true } },
 };
+
 
 async function getItem(id) {
   const item = await prisma.maintenance.findUnique({ where: { id }, include });
@@ -37,7 +49,7 @@ async function getItem(id) {
 
 router.get('/', requirePermission('maintenance:read'), asyncRoute(async (req, res) => {
   const page = pagination(req);
-  const { q, status, vehicleId } = req.query;
+  const { q, status, vehicleId, kind, priority } = req.query;
   const where = {
     ...(q
       ? {
@@ -50,6 +62,8 @@ router.get('/', requirePermission('maintenance:read'), asyncRoute(async (req, re
       : {}),
     ...(status ? { status } : {}),
     ...(vehicleId ? { vehicleId } : {}),
+    ...(kind && KINDS.includes(kind) ? { kind } : {}),
+    ...(priority && PRIORITIES.includes(priority) ? { priority } : {}),
   };
   const [items, total] = await Promise.all([
     prisma.maintenance.findMany({ where, include, orderBy: { scheduledAt: 'desc' }, skip: page.skip, take: page.take }),
@@ -58,33 +72,61 @@ router.get('/', requirePermission('maintenance:read'), asyncRoute(async (req, re
   res.json(paged(items, total, page));
 }));
 
+router.get('/predictions', requirePermission('maintenance:read'), asyncRoute(async (_req, res) => {
+  res.json(await buildPredictions(prisma));
+}));
+
 router.post('/', requirePermission('maintenance:write'), asyncRoute(async (req, res) => {
   const data = createSchema.parse(req.body);
   const vehicle = await prisma.vehicle.findUnique({ where: { id: data.vehicleId } });
   if (!vehicle) throw new HttpError(404, 'Kendaraan tidak ditemukan');
   if (vehicle.status === 'INACTIVE') throw new HttpError(409, 'Kendaraan tidak aktif dan tidak dapat dijadwalkan maintenance');
 
-  const item = await prisma.maintenance.create({
-    data: {
-      vehicleId: data.vehicleId,
-      title: data.title,
-      description: data.description || '',
-      scheduledAt: data.scheduledAt,
-      cost: data.cost ?? 0,
-      createdById: req.user.id,
-      status: 'PLANNED',
-    },
-    include,
+  let defect = null;
+  if (data.defectId) {
+    defect = await prisma.defect.findUnique({ where: { id: data.defectId } });
+    if (!defect) throw new HttpError(404, 'Defect tidak ditemukan');
+    if (defect.vehicleId !== data.vehicleId) throw new HttpError(409, 'Defect bukan milik kendaraan yang dipilih');
+    if (defect.status === 'RESOLVED') throw new HttpError(409, 'Defect sudah selesai dan tidak perlu work order');
+  }
+
+  const kind = data.kind || (defect ? 'CORRECTIVE' : 'PREVENTIVE');
+  const priority = data.priority || (defect ? severityPriority(defect.severity) : 'NORMAL');
+
+  const item = await prisma.$transaction(async (tx) => {
+    const created = await tx.maintenance.create({
+      data: {
+        vehicleId: data.vehicleId,
+        title: data.title,
+        description: data.description || '',
+        scheduledAt: data.scheduledAt,
+        cost: data.cost ?? 0,
+        kind,
+        priority,
+        createdById: req.user.id,
+        requestedById: req.user.id,
+        status: 'PLANNED',
+      },
+      include,
+    });
+    if (defect) {
+      await tx.defect.update({
+        where: { id: defect.id },
+        data: { maintenanceId: created.id, status: defect.status === 'OPEN' ? 'IN_REPAIR' : defect.status },
+      });
+    }
+    return tx.maintenance.findUnique({ where: { id: created.id }, include });
   });
   await writeAudit({
     userId: req.user.id,
     action: 'MAINTENANCE_CREATE',
     entity: 'Maintenance',
     entityId: item.id,
-    detail: `${item.vehicle.plateNumber}: ${item.title}`,
+    detail: `${item.vehicle.plateNumber}: ${item.title}${defect ? ` (defect ${defect.title})` : ''}`,
   });
   res.status(201).json(item);
 }));
+
 
 router.patch('/:id', requirePermission('maintenance:write'), asyncRoute(async (req, res) => {
   const data = updateSchema.parse(req.body);
@@ -98,6 +140,8 @@ router.patch('/:id', requirePermission('maintenance:write'), asyncRoute(async (r
       ...(data.description !== undefined ? { description: data.description || '' } : {}),
       ...(data.scheduledAt !== undefined ? { scheduledAt: data.scheduledAt } : {}),
       ...(data.cost !== undefined ? { cost: data.cost } : {}),
+      ...(data.kind !== undefined ? { kind: data.kind } : {}),
+      ...(data.priority !== undefined ? { priority: data.priority } : {}),
     },
     include,
   });
@@ -158,8 +202,22 @@ router.patch('/:id/complete', requirePermission('maintenance:write'), asyncRoute
       include,
     });
     await tx.vehicle.update({ where: { id: item.vehicleId }, data: { lastServiceAt: now } });
+    const linkedDefects = await tx.defect.findMany({
+      where: { maintenanceId: item.id, status: { not: 'RESOLVED' } },
+      select: { id: true, resolutionNote: true },
+    });
+    for (const defect of linkedDefects) {
+      await tx.defect.update({
+        where: { id: defect.id },
+        data: {
+          status: 'RESOLVED',
+          resolvedAt: now,
+          ...(defect.resolutionNote ? {} : { resolutionNote: `Diselesaikan melalui work order: ${item.title}` }),
+        },
+      });
+    }
     await refreshVehicleStatus(tx, item.vehicleId);
-    return result;
+    return tx.maintenance.findUnique({ where: { id: item.id }, include });
   });
   await writeAudit({
     userId: req.user.id,
@@ -170,6 +228,7 @@ router.patch('/:id/complete', requirePermission('maintenance:write'), asyncRoute
   });
   res.json(updated);
 }));
+
 
 router.patch('/:id/cancel', requirePermission('maintenance:write'), asyncRoute(async (req, res) => {
   const item = await getItem(req.params.id);
@@ -183,6 +242,8 @@ router.patch('/:id/cancel', requirePermission('maintenance:write'), asyncRoute(a
       include,
     });
     if (item.status === 'IN_PROGRESS') await refreshVehicleStatus(tx, item.vehicleId);
+    await tx.defect.updateMany({ where: { maintenanceId: item.id, status: 'IN_REPAIR' }, data: { status: 'OPEN' } });
+    await tx.defect.updateMany({ where: { maintenanceId: item.id }, data: { maintenanceId: null } });
     return result;
   });
   await writeAudit({
@@ -200,7 +261,11 @@ router.delete('/:id', requirePermission('maintenance:delete'), asyncRoute(async 
   if (!['PLANNED', 'CANCELLED'].includes(item.status)) {
     throw new HttpError(409, 'Hanya maintenance berstatus PLANNED/CANCELLED yang dapat dihapus');
   }
-  await prisma.maintenance.delete({ where: { id: item.id } });
+  await prisma.$transaction(async (tx) => {
+    await tx.defect.updateMany({ where: { maintenanceId: item.id, status: 'IN_REPAIR' }, data: { status: 'OPEN' } });
+    await tx.defect.updateMany({ where: { maintenanceId: item.id }, data: { maintenanceId: null } });
+    await tx.maintenance.delete({ where: { id: item.id } });
+  });
   await writeAudit({
     userId: req.user.id,
     action: 'MAINTENANCE_DELETE',

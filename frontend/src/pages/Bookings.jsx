@@ -436,6 +436,7 @@ export default function Bookings() {
       render: (booking) => (
         <div className="cell-stack">
           <b>{booking.code}</b>
+          {booking.priority === 'EMERGENCY' && <Badge value="EMERGENCY" tone="red" label="Darurat" />}
           <small>{fmtDateTime(booking.createdAt)}</small>
           {booking.seriesId && (
             <small className="series-tag">

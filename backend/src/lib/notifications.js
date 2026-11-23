@@ -1,6 +1,7 @@
 import { prisma } from '../db.js';
 import { ROLES } from './permissions.js';
 import { publishNotification } from './events.js';
+import { buildPredictions } from './maintenancePrediction.js';
 
 const STAFF_ROLES = ROLES.filter((role) => role !== 'DRIVER' && role !== 'CREW_EMPLOYEE');
 
@@ -97,7 +98,7 @@ export async function refreshUserNotifications(user) {
   const now = new Date();
   const horizon = new Date(now.getTime() + 30 * DAY_MS);
 
-  const [vehicles, drivers, maintenance, existing] = await Promise.all([
+  const [vehicles, drivers, maintenance, existing, predictions, contracts] = await Promise.all([
     prisma.vehicle.findMany({
       where: {
         status: { not: 'INACTIVE' },
@@ -117,6 +118,12 @@ export async function refreshUserNotifications(user) {
     prisma.notification.findMany({
       where: { userId: user.id, type: { in: ['DOCUMENT', 'MAINTENANCE_DUE'] }, createdAt: { gte: startOfDay(now) } },
       select: { title: true },
+    }),
+    buildPredictions(prisma),
+    prisma.vendorContract.findMany({
+      where: { status: 'ACTIVE', endDate: { lte: horizon } },
+      include: { vendor: { select: { name: true } } },
+      orderBy: { endDate: 'asc' },
     }),
   ]);
 
@@ -163,6 +170,35 @@ export async function refreshUserNotifications(user) {
           ? `Jadwal perawatan sudah lewat ${Math.abs(days)} hari dan belum dimulai.`
           : `Jadwal perawatan ${days === 0 ? 'hari ini' : `dalam ${days} hari`} (${new Date(item.scheduledAt).toLocaleDateString('id-ID')}).`,
       link: '/maintenance',
+    });
+    seen.add(title);
+  }
+  for (const prediction of predictions.items) {
+    if (prediction.status !== 'OVERDUE' || prediction.plannedWorkOrder || prediction.hasOpenWorkOrder) continue;
+    const title = `Servis jatuh tempo ${prediction.plateNumber}`;
+    if (seen.has(title)) continue;
+    pending.push({
+      userId: user.id,
+      type: 'MAINTENANCE_DUE',
+      title,
+      message: `${prediction.plateNumber} melewati interval perawatan. ${prediction.reasons[0] || ''} Segera jadwalkan work order.`.trim(),
+      link: '/maintenance',
+    });
+    seen.add(title);
+  }
+  for (const contract of contracts) {
+    const title = `Kontrak vendor ${contract.vendor.name}`;
+    if (seen.has(title)) continue;
+    const days = daysUntil(contract.endDate, now.getTime());
+    pending.push({
+      userId: user.id,
+      type: 'DOCUMENT',
+      title,
+      message:
+        days < 0
+          ? `${contract.contractNumber} sudah berakhir ${Math.abs(days)} hari lalu tetapi masih berstatus ACTIVE. Tinjau status kontrak.`
+          : `${contract.contractNumber} berakhir dalam ${days === 0 ? 'hari ini' : `${days} hari`}. Tinjau perpanjangan kontrak dan SLA.`,
+      link: '/sla',
     });
     seen.add(title);
   }

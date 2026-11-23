@@ -12,9 +12,14 @@ import {
 import {
   BarChart3,
   Bell,
+  Bot,
+  BrainCircuit,
   Car,
+  ClipboardCheck,
   ClipboardList,
   FileText,
+  Fuel,
+  Handshake,
   LayoutDashboard,
   LogOut,
   MapPin,
@@ -24,6 +29,8 @@ import {
   Satellite,
   Search,
   ShieldCheck,
+  Siren,
+  Smartphone,
   Sun,
   Truck,
   UserCircle,
@@ -33,6 +40,7 @@ import {
 } from 'lucide-react';
 import CommandPalette, { ShortcutsOverlay } from './CommandPalette.jsx';
 import NotificationBell from './NotificationBell.jsx';
+import OfflineQueueChip from './OfflineQueueChip.jsx';
 import { AuthProvider, useAuth } from './auth.jsx';
 import { can, isStaff, roleLabel } from './permissions.js';
 import { ConfirmProvider, OfflineBanner, Spinner, ToastProvider } from './ui.jsx';
@@ -40,17 +48,24 @@ import { ConfirmProvider, OfflineBanner, Spinner, ToastProvider } from './ui.jsx
 const Login = lazy(() => import('./pages/Login.jsx'));
 const Dashboard = lazy(() => import('./pages/Dashboard.jsx'));
 const Bookings = lazy(() => import('./pages/Bookings.jsx'));
+const Emergency = lazy(() => import('./pages/Emergency.jsx'));
 const Trips = lazy(() => import('./pages/Trips.jsx'));
 const GpsMonitoring = lazy(() => import('./pages/GpsMonitoring.jsx'));
 const Vehicles = lazy(() => import('./pages/Vehicles.jsx'));
 const Drivers = lazy(() => import('./pages/Drivers.jsx'));
 const Vendors = lazy(() => import('./pages/Vendors.jsx'));
+const VendorSla = lazy(() => import('./pages/VendorSla.jsx'));
 const RoutesPage = lazy(() => import('./pages/RoutesPage.jsx'));
+const InspectionPage = lazy(() => import('./pages/Inspection.jsx'));
 const Maintenance = lazy(() => import('./pages/Maintenance.jsx'));
+const FuelPage = lazy(() => import('./pages/Fuel.jsx'));
 const Audit = lazy(() => import('./pages/Audit.jsx'));
 const UsersPage = lazy(() => import('./pages/Users.jsx'));
 const Profile = lazy(() => import('./pages/Profile.jsx'));
 const Reports = lazy(() => import('./pages/Reports.jsx'));
+const Intelligence = lazy(() => import('./pages/Intelligence.jsx'));
+const Assistant = lazy(() => import('./pages/Assistant.jsx'));
+const DriverHome = lazy(() => import('./pages/DriverHome.jsx'));
 const Notifications = lazy(() => import('./pages/Notifications.jsx'));
 const NotFound = lazy(() => import('./pages/NotFound.jsx'));
 
@@ -58,25 +73,42 @@ const NAV_SECTIONS = [
   {
     label: 'Workspace',
     items: [
+      { to: '/driver', label: 'Tugas Saya', icon: Smartphone, visible: (role) => role === 'DRIVER' },
       { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true, visible: () => true },
       { to: '/bookings', label: 'Booking', icon: ClipboardList, visible: () => true },
+      { to: '/emergency', label: 'Transport Darurat', icon: Siren, visible: (role) => can(role, 'emergency:read') },
       { to: '/trips', label: 'Perjalanan', icon: RouteIcon, visible: (role) => isStaff(role) || role === 'DRIVER' },
+      { to: '/notifications', label: 'Notifikasi', icon: Bell, visible: () => true },
+      { to: '/profile', label: 'Profil', icon: UserCircle, visible: () => true },
+    ],
+  },
+  {
+    label: 'Operations',
+    items: [
       { to: '/gps', label: 'GPS Monitoring', icon: Satellite, visible: (role) => can(role, 'gps:read') },
       { to: '/vehicles', label: 'Kendaraan', icon: Car, visible: (role) => can(role, 'vehicles:read') },
       { to: '/drivers', label: 'Driver', icon: Users, visible: (role) => can(role, 'drivers:read') },
       { to: '/vendors', label: 'Vendor', icon: Truck, visible: (role) => can(role, 'vendors:read') },
+      { to: '/sla', label: 'SLA Vendor', icon: Handshake, visible: (role) => can(role, 'vendors:sla') },
       { to: '/routes', label: 'Rute', icon: MapPin, visible: (role) => can(role, 'routes:read') },
+      { to: '/inspection', label: 'Inspeksi Kendaraan', icon: ClipboardCheck, visible: (role) => can(role, 'inspection:read') },
       { to: '/maintenance', label: 'Maintenance', icon: Wrench, visible: (role) => can(role, 'maintenance:read') },
+      { to: '/fuel', label: 'Bahan Bakar', icon: Fuel, visible: (role) => can(role, 'fuel:read') },
+    ],
+  },
+  {
+    label: 'Intelligence',
+    items: [
       { to: '/reports', label: 'Laporan', icon: BarChart3, visible: (role) => can(role, 'reports:read') },
+      { to: '/intelligence', label: 'Fleet Intelligence', icon: BrainCircuit, visible: (role) => can(role, 'intelligence:read') },
     ],
   },
   {
     label: 'Governance',
     items: [
       { to: '/audit', label: 'Audit Log', icon: FileText, visible: (role) => can(role, 'audit:read') },
+      { to: '/assistant', label: 'Fleet Assistant', icon: Bot, visible: (role) => can(role, 'assistant:ask') },
       { to: '/users', label: 'Pengguna', icon: ShieldCheck, visible: (role) => can(role, 'users:manage') },
-      { to: '/notifications', label: 'Notifikasi', icon: Bell, visible: () => true },
-      { to: '/profile', label: 'Profil', icon: UserCircle, visible: () => true },
     ],
   },
 ];
@@ -240,14 +272,23 @@ function AppShell() {
     items: section.items.filter((item) => item.visible(user.role)),
   })).filter((section) => section.items.length > 0);
 
-  const bottomItems = [
-    { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
-    { to: '/bookings', label: 'Booking', icon: ClipboardList },
-    ...(isStaff(user.role) || user.role === 'DRIVER' ? [{ to: '/trips', label: 'Trip', icon: RouteIcon }] : []),
-    ...(can(user.role, 'gps:read') ? [{ to: '/gps', label: 'GPS', icon: Satellite }] : []),
-    { to: '/notifications', label: 'Notifikasi', icon: Bell },
-    { to: '/profile', label: 'Profil', icon: UserCircle },
-  ].slice(0, 5);
+  const bottomItems = (
+    user.role === 'DRIVER'
+      ? [
+          { to: '/driver', label: 'Tugas', icon: Smartphone },
+          { to: '/trips', label: 'Trip', icon: RouteIcon },
+          { to: '/notifications', label: 'Notifikasi', icon: Bell },
+          { to: '/profile', label: 'Profil', icon: UserCircle },
+        ]
+      : [
+          { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
+          { to: '/bookings', label: 'Booking', icon: ClipboardList },
+          ...(isStaff(user.role) ? [{ to: '/trips', label: 'Trip', icon: RouteIcon }] : []),
+          ...(can(user.role, 'gps:read') ? [{ to: '/gps', label: 'GPS', icon: Satellite }] : []),
+          { to: '/notifications', label: 'Notifikasi', icon: Bell },
+          { to: '/profile', label: 'Profil', icon: UserCircle },
+        ]
+  ).slice(0, 5);
 
   const handleLogout = async () => {
     await logout();
@@ -333,6 +374,7 @@ function AppShell() {
               <kbd>Ctrl K</kbd>
             </button>
             <NotificationBell />
+            <OfflineQueueChip />
             <button
               type="button"
               className="icon-btn"
@@ -377,7 +419,7 @@ function AppShell() {
 function LoginRoute() {
   const { user, bootstrapping } = useAuth();
   if (bootstrapping) return <FullPageLoader />;
-  if (user) return <Navigate to="/" replace />;
+  if (user) return <Navigate to={user.role === 'DRIVER' ? '/driver' : '/'} replace />;
   return (
     <LazyPage>
       <Login />
@@ -396,6 +438,14 @@ export default function App() {
               <Route path="/login" element={<LoginRoute />} />
               <Route element={<AppShell />}>
                 <Route index element={<LazyPage><Dashboard /></LazyPage>} />
+                <Route
+                  path="driver"
+                  element={
+                    <Guard allow={(role) => role === 'DRIVER'}>
+                      <LazyPage><DriverHome /></LazyPage>
+                    </Guard>
+                  }
+                />
                 <Route path="bookings" element={<LazyPage><Bookings /></LazyPage>} />
                 <Route
                   path="trips"
@@ -430,10 +480,26 @@ export default function App() {
                   }
                 />
                 <Route
+                  path="emergency"
+                  element={
+                    <Guard allow={(role) => can(role, 'emergency:read')}>
+                      <LazyPage><Emergency /></LazyPage>
+                    </Guard>
+                  }
+                />
+                <Route
                   path="vendors"
                   element={
                     <Guard allow={(role) => can(role, 'vendors:read')}>
                       <LazyPage><Vendors /></LazyPage>
+                    </Guard>
+                  }
+                />
+                <Route
+                  path="sla"
+                  element={
+                    <Guard allow={(role) => can(role, 'vendors:sla')}>
+                      <LazyPage><VendorSla /></LazyPage>
                     </Guard>
                   }
                 />
@@ -446,10 +512,26 @@ export default function App() {
                   }
                 />
                 <Route
+                  path="inspection"
+                  element={
+                    <Guard allow={(role) => can(role, 'inspection:read')}>
+                      <LazyPage><InspectionPage /></LazyPage>
+                    </Guard>
+                  }
+                />
+                <Route
                   path="maintenance"
                   element={
                     <Guard allow={(role) => can(role, 'maintenance:read')}>
                       <LazyPage><Maintenance /></LazyPage>
+                    </Guard>
+                  }
+                />
+                <Route
+                  path="fuel"
+                  element={
+                    <Guard allow={(role) => can(role, 'fuel:read')}>
+                      <LazyPage><FuelPage /></LazyPage>
                     </Guard>
                   }
                 />
@@ -466,6 +548,22 @@ export default function App() {
                   element={
                     <Guard allow={(role) => can(role, 'reports:read')}>
                       <LazyPage><Reports /></LazyPage>
+                    </Guard>
+                  }
+                />
+                <Route
+                  path="intelligence"
+                  element={
+                    <Guard allow={(role) => can(role, 'intelligence:read')}>
+                      <LazyPage><Intelligence /></LazyPage>
+                    </Guard>
+                  }
+                />
+                <Route
+                  path="assistant"
+                  element={
+                    <Guard allow={(role) => can(role, 'assistant:ask')}>
+                      <LazyPage><Assistant /></LazyPage>
                     </Guard>
                   }
                 />

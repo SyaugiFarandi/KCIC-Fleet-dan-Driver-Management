@@ -14,7 +14,9 @@ The script:
 2. Resets it with `prisma migrate reset --force --skip-seed`.
 3. Inserts deterministic fixtures: 12 users, 2 vendors, 2 routes, 4 vehicles (two with
    document expiry dates), 4 drivers, 1 geofence, 3 GPS devices, 2 GPS events.
-4. Runs 54 tests sequentially (`--test-concurrency=1`).
+4. Runs 67 tests sequentially (`--test-concurrency=1`). Tests that need extra master data
+   (an enterprise QA vehicle/driver/user, inspection templates, contracts) create their own
+   rows, so count-based assertions tolerate those fixtures.
 
 Coverage by file:
 
@@ -27,6 +29,8 @@ Coverage by file:
 | `users.test.js` | user CRUD, pagination/filtering, self-protection rules |
 | `gps.test.js` | staff-only access; motion status derivation; status/ownership/driver/search filters; detail; history range/limit; trip replay; events filters; geofence CRUD (+validation, 409, audit); GPS device CRUD (+409 duplicates, audit) |
 | `features.test.js` | notifications (scoping, read/mark-all, dedupe, sweep) · reports summary + CSV (RBAC, range, unknown dataset 400) · recurring booking series · checklist template + `PICKED_UP` gate · vehicle document expiry fields · GPS ETA/deviation · event acknowledgement (+403/404/409, audit) |
+| `ux-phases.test.js` | httpOnly cookie session, notification preferences, series-wide cancel (+RBAC), vehicle checklist templates, Excel export |
+| `enterprise.test.js` | route recommendations (+RBAC/ranking/404) · emergency transport create/validation/scope/decision/summary · inspection template + inspection lifecycle → FAILED critical defect · maintenance predictions (4 rules, RBAC) → work order from defect → start/complete resolves defect · driver-scoped fuel submission (trip ownership, 120 L anomaly) + review RBAC · SLA contract create/duplicate/range validation + scorecard · intelligence KPI library/data-quality/widgets (+RBAC) · read-only assistant suggestions/query/validation (+RBAC) |
 
 The GPS simulator is disabled automatically under `NODE_ENV=test`, so tests are deterministic.
 
@@ -61,6 +65,23 @@ npm run build
 13. Kendaraan/Driver: check document expiry badges; edit STNK/insurance dates.
 14. GPS: verify ETA chips, "Deviasi Rute" KPI and detail banner, acknowledge an event in
     "Event GPS" (unacknowledged count decreases).
+15. Transport Darurat: create as an employee (short reason is rejected), approve as fleet,
+    assign as dispatcher; verify KPI cards and that cancel is blocked once assigned.
+16. Bahan Bakar: submit as driver from Tugas Saya (110 L triggers a FLAGGED anomaly), review
+    as fleet officer (APPROVE/CLEAR), and check the per-vehicle km/L in the summary.
+17. Inspeksi: create from a template, complete with a critical item unchecked → FAILED, one
+    CRITICAL defect appears in Maintenance and can be converted to a work order.
+18. Maintenance predictive panel: verify due/overdue reasons cite odometer, last service and
+    open defects; employee token → 403.
+19. SLA Vendor: create a contract with 2 metrics, confirm duplicate numbers → 409, check the
+    scorecard only uses data entered by the user (no invented values).
+20. Fleet Intelligence: KPI library (14 KPIs, formulas), data-quality monitor (12 checks),
+    widget toggle persists on the dashboard.
+21. Asisten: ask a suggested question; confirm the answer states it is rule-based/read-only
+    and employee token → 403.
+22. Menu grouping: staff sidebar shows Workspace/Operations/Intelligence/Governance with no
+    duplicate items; driver sidebar shows only Tugas Saya/Trip/Notifikasi/Profil. Repeat in
+    dark mode and at 390 px width (drawer + bottom nav).
 
 ## GPS acceptance checks
 

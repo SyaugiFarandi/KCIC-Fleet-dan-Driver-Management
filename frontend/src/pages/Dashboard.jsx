@@ -1,11 +1,22 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CalendarDays, Car, Check, ClipboardList, Clock, Route as RouteIcon, Users, Wrench, X } from 'lucide-react';
-import { api, apiPatch } from '../api.js';
+import { api, apiGet, apiPatch } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { can } from '../permissions.js';
-import { fmtDateTime } from '../format.js';
+import { fmtDateTime, fmtMoney } from '../format.js';
 import { Badge, ErrorBanner, Field, Modal, PageHeader, Spinner, StatCard, useConfirm, useToast } from '../ui.jsx';
+
+const INTEL_TONE = { GOOD: 'green', WARN: 'amber', BAD: 'red', NEUTRAL: 'gray' };
+const INTEL_LABEL = { GOOD: 'Sehat', WARN: 'Perhatian', BAD: 'Kritis', NEUTRAL: 'Info' };
+
+function intelValue(kpi) {
+  if (kpi.value === null || kpi.value === undefined) return '—';
+  if (kpi.unit === '%') return `${kpi.value}%`;
+  if (kpi.unit === 'IDR') return fmtMoney(kpi.value);
+  if (kpi.unit === 'mnt') return `${kpi.value} mnt`;
+  return `${kpi.value} ${kpi.unit}`;
+}
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -13,6 +24,7 @@ export default function Dashboard() {
   const toast = useToast();
   const confirm = useConfirm();
   const [data, setData] = useState(null);
+  const [intel, setIntel] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [rejectTarget, setRejectTarget] = useState(null);
@@ -22,14 +34,19 @@ export default function Dashboard() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      setData(await api('/dashboard'));
+      const [dashboard, intelligence] = await Promise.all([
+        api('/dashboard'),
+        can(user?.role, 'intelligence:read') ? apiGet('/intelligence/kpis').catch(() => null) : Promise.resolve(null),
+      ]);
+      setData(dashboard);
+      setIntel(intelligence);
       setError(null);
     } catch (err) {
       setError(err);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [user?.role]);
 
   useEffect(() => {
     load();
@@ -77,6 +94,11 @@ export default function Dashboard() {
   }
 
   const kpis = data?.kpis || {};
+  const intelKpis = intel
+    ? Object.values(intel.groups)
+        .flat()
+        .filter((kpi) => intel.preferences.widgets.includes(kpi.id))
+    : [];
 
   return (
     <>
@@ -107,6 +129,29 @@ export default function Dashboard() {
             <StatCard label="Perjalanan Aktif" value={kpis.activeTrips} hint={`${kpis.tripsToday} trip hari ini`} icon={RouteIcon} onClick={() => navigate('/trips')} />
             <StatCard label="Dalam Maintenance" value={kpis.maintenanceActive} hint={`${kpis.maintenancePlanned} direncanakan`} icon={Wrench} onClick={() => navigate('/maintenance')} />
           </div>
+
+          {intelKpis.length > 0 && (
+            <section className="panel intel-strip">
+              <div className="panel-head">
+                <div>
+                  <h3>KPI Intelijen</h3>
+                  <p>Widget pilihan Anda dari Fleet Intelligence (data DEMO, 30 hari terakhir)</p>
+                </div>
+                <button type="button" className="link-btn" onClick={() => navigate('/intelligence')}>
+                  Kelola widget
+                </button>
+              </div>
+              <div className="intel-strip-grid">
+                {intelKpis.map((kpi) => (
+                  <button type="button" className="intel-mini" key={kpi.id} onClick={() => navigate('/intelligence')}>
+                    <span>{kpi.label}</span>
+                    <b>{intelValue(kpi)}</b>
+                    <Badge value={kpi.status} tone={INTEL_TONE[kpi.status]} label={INTEL_LABEL[kpi.status]} />
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
 
           <div className="dashboard-grid">
             <section className="panel panel-span-2">

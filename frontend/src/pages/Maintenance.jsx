@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, Pencil, Play, Plus, RefreshCw, Trash2, XCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Gauge, Pencil, Play, Plus, RefreshCw, Trash2, Wrench, XCircle } from 'lucide-react';
 import { api, apiDelete, apiPatch, apiPost } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { can } from '../permissions.js';
@@ -12,11 +12,29 @@ import {
   Modal,
   PageHeader,
   SearchBox,
+  StatCard,
   useConfirm,
   useToast,
 } from '../ui.jsx';
 
-const emptyForm = () => ({ vehicleId: '', title: '', description: '', scheduledAt: '', cost: 0 });
+const KIND_LABELS = { PREVENTIVE: 'Preventif', CORRECTIVE: 'Korektif', INSPECTION: 'Inspeksi' };
+const PRIORITY_LABELS = { LOW: 'Rendah', NORMAL: 'Normal', HIGH: 'Tinggi', URGENT: 'Mendesak' };
+const PRIORITY_TONES = { LOW: 'gray', NORMAL: 'blue', HIGH: 'amber', URGENT: 'red' };
+const PREDICTION_LABELS = { OVERDUE: 'Jatuh tempo', DUE_SOON: 'Segera', OK: 'Aman', UNKNOWN: 'Belum diketahui' };
+const PREDICTION_TONES = { OVERDUE: 'red', DUE_SOON: 'amber', OK: 'green', UNKNOWN: 'gray' };
+const CONFIDENCE_LABELS = { HIGH: 'Data kuat', MEDIUM: 'Data sedang', LOW: 'Data terbatas' };
+
+const emptyForm = () => ({
+  vehicleId: '',
+  title: '',
+  description: '',
+  scheduledAt: '',
+  cost: 0,
+  kind: 'PREVENTIVE',
+  priority: 'NORMAL',
+  defectId: '',
+});
+
 
 export default function Maintenance() {
   const { user } = useAuth();
@@ -25,9 +43,11 @@ export default function Maintenance() {
 
   const [items, setItems] = useState([]);
   const [vehicles, setVehicles] = useState([]);
+  const [predictions, setPredictions] = useState(null);
+  const [defects, setDefects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [filters, setFilters] = useState({ q: '', status: '' });
+  const [filters, setFilters] = useState({ q: '', status: '', kind: '' });
   const [modal, setModal] = useState(null);
   const [form, setForm] = useState(emptyForm());
   const [completeCost, setCompleteCost] = useState(0);
@@ -39,12 +59,16 @@ export default function Maintenance() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [list, vehicleList] = await Promise.all([
+      const [list, vehicleList, predictionData, defectList] = await Promise.all([
         api('/maintenance', { query: { pageSize: 200 } }),
         api('/vehicles', { query: { pageSize: 200 } }),
+        api('/maintenance/predictions'),
+        api('/defects', { query: { pageSize: 200 } }),
       ]);
       setItems(list.items || []);
       setVehicles((vehicleList.items || []).filter((vehicle) => vehicle.status !== 'INACTIVE'));
+      setPredictions(predictionData);
+      setDefects(defectList.items || []);
       setError(null);
     } catch (err) {
       setError(err);
@@ -61,13 +85,39 @@ export default function Maintenance() {
     const q = filters.q.trim().toLowerCase();
     return items.filter((item) => {
       if (filters.status && item.status !== filters.status) return false;
+      if (filters.kind && item.kind !== filters.kind) return false;
       if (!q) return true;
       return [item.vehicle?.plateNumber, item.title, item.description].join(' ').toLowerCase().includes(q);
     });
   }, [items, filters]);
 
+  const duePredictions = useMemo(
+    () => (predictions?.items || []).filter((item) => ['OVERDUE', 'DUE_SOON'].includes(item.status)),
+    [predictions]
+  );
+
+  const vehicleDefects = useMemo(
+    () => defects.filter((defect) => defect.status !== 'RESOLVED' && !defect.maintenanceId && defect.vehicleId === form.vehicleId),
+    [defects, form.vehicleId]
+  );
+
   const openCreate = () => {
     setForm(emptyForm());
+    setModal({ type: 'create' });
+  };
+
+  const openFromPrediction = (prediction) => {
+    const scheduled = new Date(Date.now() + 7 * 86400000);
+    scheduled.setHours(9, 0, 0, 0);
+    setForm({
+      ...emptyForm(),
+      vehicleId: prediction.vehicleId,
+      title: `Servis berkala ${prediction.plateNumber}`,
+      description: prediction.reasons.join(' '),
+      scheduledAt: toDateTimeLocal(scheduled),
+      kind: 'PREVENTIVE',
+      priority: prediction.priority,
+    });
     setModal({ type: 'create' });
   };
 
@@ -78,6 +128,9 @@ export default function Maintenance() {
       description: item.description || '',
       scheduledAt: toDateTimeLocal(item.scheduledAt),
       cost: item.cost || 0,
+      kind: item.kind || 'PREVENTIVE',
+      priority: item.priority || 'NORMAL',
+      defectId: '',
     });
     setModal({ type: 'edit', item });
   };
@@ -89,16 +142,18 @@ export default function Maintenance() {
       description: form.description.trim() || null,
       scheduledAt: new Date(form.scheduledAt).toISOString(),
       cost: Number(form.cost || 0),
-      ...(modal.type === 'create' ? { vehicleId: form.vehicleId } : {}),
+      kind: form.kind,
+      priority: form.priority,
+      ...(modal.type === 'create' ? { vehicleId: form.vehicleId, defectId: form.defectId || null } : {}),
     };
     setBusy(true);
     try {
       if (modal.type === 'create') {
         await apiPost('/maintenance', payload);
-        toast.success('Jadwal maintenance dibuat.');
+        toast.success(form.defectId ? 'Work order dibuat dan defect ditautkan.' : 'Work order dibuat.');
       } else {
         await apiPatch(`/maintenance/${modal.item.id}`, payload);
-        toast.success('Maintenance diperbarui.');
+        toast.success('Work order diperbarui.');
       }
       setModal(null);
       await load();
@@ -108,6 +163,7 @@ export default function Maintenance() {
       setBusy(false);
     }
   };
+
 
   const start = async (item) => {
     const ok = await confirm({
@@ -147,7 +203,11 @@ export default function Maintenance() {
     setBusy(true);
     try {
       await apiPatch(`/maintenance/${modal.item.id}/complete`, { cost: Number(completeCost || 0) });
-      toast.success('Maintenance selesai dan kendaraan kembali tersedia.');
+      toast.success(
+        modal.item.defects?.length
+          ? 'Maintenance selesai, kendaraan tersedia, dan defect tertaut ditandai selesai.'
+          : 'Maintenance selesai dan kendaraan kembali tersedia.'
+      );
       setModal(null);
       await load();
     } catch (err) {
@@ -193,9 +253,17 @@ export default function Maintenance() {
       render: (item) => (
         <div className="cell-stack">
           <b>{item.title}</b>
-          <small>{item.description || '—'}</small>
+          <small>
+            {KIND_LABELS[item.kind] || item.kind}
+            {item.defects?.length ? ` · ${item.defects.length} defect tertaut` : ''}
+          </small>
         </div>
       ),
+    },
+    {
+      key: 'priority',
+      label: 'Prioritas',
+      render: (item) => <Badge value={PRIORITY_LABELS[item.priority] || item.priority} tone={PRIORITY_TONES[item.priority]} />,
     },
     { key: 'scheduledAt', label: 'Jadwal', render: (item) => fmtDateTime(item.scheduledAt) },
     { key: 'cost', label: 'Biaya', render: (item) => fmtMoney(item.cost) },
@@ -270,10 +338,73 @@ export default function Maintenance() {
 
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
 
+      <div className="stats-grid">
+        <StatCard
+          label="Prediksi Perlu Servis"
+          value={predictions ? predictions.summary.overdue + predictions.summary.dueSoon : '—'}
+          hint={predictions ? `${predictions.summary.overdue} jatuh tempo, ${predictions.summary.dueSoon} segera` : 'Memuat prediksi...'}
+          icon={Gauge}
+        />
+        <StatCard label="Jatuh Tempo" value={predictions?.summary.overdue ?? '—'} hint="Melewati interval waktu/km" icon={AlertTriangle} />
+        <StatCard label="Segera Servis" value={predictions?.summary.dueSoon ?? '—'} hint="≤ 1.000 km atau ≤ 14 hari" icon={Gauge} />
+        <StatCard label="Tanpa Work Order" value={predictions?.summary.withoutWorkOrder ?? '—'} hint="Perlu dijadwalkan" icon={Wrench} />
+      </div>
+
+      {duePredictions.length > 0 && (
+        <section className="panel">
+          <div className="panel-head">
+            <div>
+              <h2>Rekomendasi Perawatan</h2>
+              <p>Estimasi rule-based dari interval servis dan odometer bahan bakar. Keputusan penjadwalan tetap di tangan tim.</p>
+            </div>
+          </div>
+          <div className="insight-grid">
+            {duePredictions.slice(0, 6).map((prediction) => (
+              <div className="insight-card" key={prediction.vehicleId}>
+                <div className="prediction-head">
+                  <b>{prediction.plateNumber}</b>
+                  <Badge value={PREDICTION_LABELS[prediction.status]} tone={PREDICTION_TONES[prediction.status]} />
+                </div>
+                <p>{prediction.reasons[0]}</p>
+                <div className="badge-row">
+                  <Badge value={CONFIDENCE_LABELS[prediction.confidence]} tone={prediction.confidence === 'LOW' ? 'amber' : 'gray'} />
+                  {prediction.remainingKm != null && <Badge value={`Sisa ${prediction.remainingKm.toLocaleString('id-ID')} km`} tone={prediction.remainingKm <= 0 ? 'red' : 'amber'} />}
+                  {prediction.remainingDays != null && <Badge value={`${prediction.remainingDays} hari`} tone={prediction.remainingDays <= 0 ? 'red' : 'amber'} />}
+                </div>
+                <div className="prediction-foot">
+                  {prediction.plannedWorkOrder ? (
+                    <small className="muted-text">Sudah dijadwalkan: {prediction.plannedWorkOrder.title}</small>
+                  ) : prediction.hasOpenWorkOrder ? (
+                    <small className="muted-text">Work order sedang berjalan.</small>
+                  ) : canWrite ? (
+                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => openFromPrediction(prediction)}>
+                      <Plus size={13} /> Buat Work Order
+                    </button>
+                  ) : (
+                    <small className="muted-text">Belum ada work order.</small>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+          <p className="muted-text prediction-note">
+            Metode: {predictions?.rules?.[1]} Kualitas data: {predictions?.rules?.[3]}
+          </p>
+        </section>
+      )}
+
       <div className="panel">
         <div className="toolbar">
           <SearchBox value={filters.q} onChange={(q) => setFilters({ ...filters, q })} placeholder="Cari kendaraan atau pekerjaan..." />
           <div className="toolbar-selects">
+            <select value={filters.kind} onChange={(event) => setFilters({ ...filters, kind: event.target.value })}>
+              <option value="">Semua jenis</option>
+              {Object.entries(KIND_LABELS).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
             <select value={filters.status} onChange={(event) => setFilters({ ...filters, status: event.target.value })}>
               <option value="">Semua status</option>
               <option value="PLANNED">Direncanakan</option>
@@ -306,11 +437,23 @@ export default function Maintenance() {
             <div className="form-grid">
               {modal.type === 'create' && (
                 <Field label="Kendaraan" className="span-2">
-                  <select required value={form.vehicleId} onChange={(event) => setForm({ ...form, vehicleId: event.target.value })}>
+                  <select required value={form.vehicleId} onChange={(event) => setForm({ ...form, vehicleId: event.target.value, defectId: '' })}>
                     <option value="">— Pilih kendaraan —</option>
                     {vehicles.map((vehicle) => (
                       <option key={vehicle.id} value={vehicle.id}>
                         {vehicle.plateNumber} · {vehicle.brand} {vehicle.model} ({vehicle.status})
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              )}
+              {modal.type === 'create' && form.vehicleId && vehicleDefects.length > 0 && (
+                <Field label="Defect terkait (opsional)" className="span-2" hint="Defect akan ditandai diperbaiki dan otomatis selesai saat work order selesai.">
+                  <select value={form.defectId} onChange={(event) => setForm({ ...form, defectId: event.target.value })}>
+                    <option value="">— Tanpa defect —</option>
+                    {vehicleDefects.map((defect) => (
+                      <option key={defect.id} value={defect.id}>
+                        {defect.title} ({defect.severity}/{defect.status})
                       </option>
                     ))}
                   </select>
@@ -342,6 +485,24 @@ export default function Maintenance() {
                   onChange={(event) => setForm({ ...form, cost: event.target.value })}
                 />
               </Field>
+              <Field label="Kategori">
+                <select value={form.kind} onChange={(event) => setForm({ ...form, kind: event.target.value })}>
+                  {Object.entries(KIND_LABELS).map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Prioritas">
+                <select value={form.priority} onChange={(event) => setForm({ ...form, priority: event.target.value })}>
+                  {Object.entries(PRIORITY_LABELS).map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </Field>
               <Field label="Deskripsi" className="span-2">
                 <textarea
                   rows={3}
@@ -372,7 +533,14 @@ export default function Maintenance() {
           }
         >
           <form id="complete-form" onSubmit={complete}>
-            <Field label="Biaya akhir (Rp)" hint="Kendaraan akan kembali tersedia setelah maintenance selesai.">
+            <Field
+              label="Biaya akhir (Rp)"
+              hint={
+                modal.item.defects?.length
+                  ? 'Defect tertaut akan ditandai selesai otomatis dan kendaraan kembali tersedia.'
+                  : 'Kendaraan akan kembali tersedia setelah maintenance selesai.'
+              }
+            >
               <input
                 type="number"
                 min="0"

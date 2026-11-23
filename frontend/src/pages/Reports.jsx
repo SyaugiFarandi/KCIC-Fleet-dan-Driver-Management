@@ -7,6 +7,7 @@ import {
   Printer,
   RefreshCw,
   Route as RouteIcon,
+  Siren,
   Users,
   Wrench,
 } from 'lucide-react';
@@ -155,6 +156,16 @@ export default function Reports() {
             <StatCard label="Utilisasi Armada" value={`${data.totals.utilizationRate}%`} hint={`${data.totals.fleetSize} kendaraan terdaftar`} icon={CarFront} />
             <StatCard label="Biaya Maintenance" value={fmtMoney(data.totals.maintenanceCost)} hint={`${data.totals.maintenanceItems} pekerjaan`} icon={Wrench} />
             <StatCard label="Trip Dibatalkan" value={data.totals.cancelledTrips} hint="Selama periode laporan" icon={Fuel} />
+            <StatCard
+              label="Transport Darurat"
+              value={data.emergency?.total ?? 0}
+              hint={
+                data.emergency?.avgApprovalMinutes != null
+                  ? `Respons rata-rata ${data.emergency.avgApprovalMinutes} mnt`
+                  : 'Belum ada keputusan darurat'
+              }
+              icon={Siren}
+            />
           </div>
 
           <div className="report-grid">

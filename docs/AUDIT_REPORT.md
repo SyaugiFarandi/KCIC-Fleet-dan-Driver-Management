@@ -15,7 +15,7 @@ constraints; **NOT IMPLEMENTED** = not built.
 
 - All menus are functional and backed by real API + PostgreSQL data (no decorative buttons).
 - Role restrictions are enforced server-side; frontend hides menus only as convenience.
-- Automated API suite: **59 tests, 59 passing** (`cd backend && npm test`).
+- Automated API suite: **67 tests, 67 passing** (`cd backend && npm test`).
 - Frontend production build: **passing** (`cd frontend && npm run build`).
 - Docker Compose stack starts db → api (migrate + seed) → web; verified end to end.
 
@@ -93,6 +93,41 @@ stylesheet layer; no framework swap, brand palette kept).
   vehicle checklist templates, and Excel export); `cd frontend && npm run build` →
   success with PWA assets copied to `dist`.
 
+## Enterprise phases A–K verification log (2026-11-23, dev stack)
+
+- `cd backend && npm test` → **67 tests, 67 pass, 0 fail** (~19 s). New
+  `test/enterprise.test.js` (8 tests) covers route recommendations, emergency transport,
+  inspection → defect, maintenance prediction → work order, driver fuel anomaly + review,
+  SLA contracts/scorecard, intelligence KPIs/data quality/widgets and the read-only
+  assistant, including RBAC (403) checks. `gps.test.js` count assertions now tolerate
+  fixtures created by other files (they still assert exact moving/stopped mappings).
+- `cd frontend && npm run build` → success; each new page is a lazy chunk
+  (`Fuel`, `Inspection`, `Emergency`, `RoutesPage`, `VendorSla`, `Intelligence`,
+  `DriverHome`, `Maintenance`) and the shared `index` chunk stays ~232 kB (73 kB gzip).
+- Verified in the running dev stack (Chrome, CDP scripted):
+  - **Driver PWA (Phase J):** driver login lands on `/driver`; bottom navigation shows
+    `Tugas · Trip · Notifikasi · Profil` only; "Lapor bahan bakar" modal submits a
+    trip-scoped fuel request (20 L BIOSOLAR → Rp 136.000 recorded in the API); going offline
+    enqueues the action ("1 antrean", button hint "· antrekan"), reconnect auto-syncs
+    ("1 aksi offline berhasil disinkronkan") and the trip status changes to
+    `DRIVER_ACCEPTED`; a 404 conflict on sync drops the item with a toast. A Fleet Manager
+    opening `/driver` gets the 403 guard.
+  - **Menu grouping (Phase K):** at 1440×900 the staff sidebar renders exactly
+    Workspace (Dashboard, Booking, Transport Darurat, Perjalanan, Notifikasi, Profil),
+    Operations (GPS Monitoring, Kendaraan, Driver, Vendor, SLA Vendor, Rute, Inspeksi
+    Kendaraan, Maintenance, Bahan Bakar), Intelligence (Laporan, Fleet Intelligence) and
+    Governance (Audit Log, Fleet Assistant, Pengguna); duplicate-label check returned
+    `[]`; the bottom nav is `display: none` at desktop width.
+  - At 390×844 the drawer shows the same groups with the backdrop button, and the bottom nav
+    has 5 staff items; the driver session shows 4 items. Dark mode (`data-theme="dark"`)
+    renders the same grouping; one contrast regression was found and fixed
+    (`.approval-item` had a hard-coded `#fbfcfe` background — now `#1c222c` in dark mode).
+- Phase-level functional evidence (dev stack) from earlier verification:
+  fuel anomaly review, inspection FAILED → CRITICAL defect, defect → work order → vehicle
+  `IN_REPAIR` → complete resolves defect, emergency approve/reject KPIs on the summary,
+  SLA scorecard computed only from user-entered targets, 14 intelligence KPIs + 12
+  data-quality checks, assistant answers citing data rows, offline queue sync.
+
 ## Area status
 
 | Area | Status | Evidence / notes |
@@ -122,10 +157,24 @@ stylesheet layer; no framework swap, brand palette kept).
 | Document & SIM expiry reminders | PASS | STNK/insurance date fields + badges (≤30 days amber, expired red); sweep notifications; report columns |
 | Reports & CSV export | PASS | summary KPIs, per-vehicle utilization/cost, department recap, maintenance; CSV + print layout; staff-only RBAC |
 | Booking calendar & availability | PASS | month grid with status pills, day panel, availability check by time window/pax |
-| Recurring / multi-day bookings | PARTIAL | DAILY/WEEKLY series (2–8) linked by `seriesId`; no series-wide edit/cancel |
+| Recurring / multi-day bookings | PARTIAL | DAILY/WEEKLY series (2–8) linked by `seriesId`; whole-series cancel implemented, edits still per occurrence |
 | Pre-trip checklist gate | PASS | template + saved JSON per trip; API rejects `PICKED_UP` until complete (with missing-item list) |
+| Per-vehicle checklist templates | PASS | template editor on vehicles; falls back to the system default |
+| Fuel management | PASS | trip-scoped driver submissions, reference prices, anomaly rules (price/volume/odometer), review approve/clear, per-vehicle km/L summary; `enterprise.test.js` |
+| Digital inspection | PASS | templates (category + critical flags), DRAFT → PASSED/DEFECTS/FAILED, auto defect creation, critical-failure notifications |
+| Predictive maintenance | PASS | rule-based due/overdue reasons (odometer interval, time since last service, open defects); advisory only |
+| Work orders | PASS | PREVENTIVE/CORRECTIVE with priority; start/finish sync vehicle status; defect → work order conversion resolves the defect on completion |
+| Emergency transport | PASS | EMERGENCY booking with mandatory reason, approver decisions (rejection reason), scope isolation, summary KPIs, assigned bookings cannot be cancelled |
+| Route points, restrictions & estimation | PASS | route points/restrictions CRUD; estimate returns haversine distance/duration + warnings; dispatcher decides (no auto-assign) |
+| Vendor SLA monitoring | PASS | contracts + SLA definitions; scorecard from trips/vehicles in range; exceptions (breach/no-data/expiring/expired-active/inactive vendor); no invented targets or contract values |
+| Fleet Intelligence / BI | PASS | 14 KPIs with formulas + status, grouped tables, 12-check data-quality monitor with score, demo disclaimer |
+| Dashboard widgets preference | PASS | per-user toggle/reorder persisted through `/api/intelligence/widgets`; dashboards render the selection |
+| Rule-based fleet assistant | PASS | read-only intents answering from RBAC-scoped data; no mutations; explicit "rule-based, not AI" wording |
+| Menu grouping (Workspace/Operations/Intelligence/Governance) | PASS | verified desktop + mobile + dark mode; no duplicate labels |
+| Driver PWA & offline queue | PASS | driver-only `/driver` page, dedicated bottom nav, localStorage queue for trip status with sync chip, auto-flush on reconnect, conflict drop |
 | External notification delivery (email/SMS/WhatsApp/Telegram) | NOT IMPLEMENTED | In-app only; out of scope for this demo |
-| Per-vehicle checklist templates | NOT IMPLEMENTED | Single generic template used for all vehicles |
+| LLM/AI provider integration | NOT IMPLEMENTED | Assistant is deterministic and rule-based; no external model/API key is used |
+| Real fuel cards / contract documents / photo storage | NOT IMPLEMENTED | Entry points accept manual references only; nothing is claimed as an active integration |
 | Docker Compose (db + api + web) | PASS | ports configurable; api runs generate → migrate → seed → server; healthchecks |
 | Real GPS hardware/provider integration | NOT IMPLEMENTED | Explicitly out of scope; simulator is isolated behind `backend/src/lib/gps.js` for future swap |
 | SSO, email/SMS/Telegram notifications | NOT IMPLEMENTED | Out of scope for this demo |
@@ -212,5 +261,12 @@ markup stay untouched.
   read-triggered sweep (deduped per user/day), not a scheduled background job.
 - Recurring bookings are independent rows sharing a `seriesId`; cancellation can be applied
   to the whole series in one action, but edits still apply per occurrence.
+- Fuel transactions, inspection templates/results, maintenance predictions and the assistant's
+  answers are generated from DEMO/rule-based logic; no fuel card, contract document, hardware
+  or LLM provider is integrated, and none of it is official KCIC data.
+- Predictive maintenance is advisory and rule-based (odometer interval, time since service,
+  open defects); a human must create the work order.
+- The driver offline queue stores trip status updates only; inspection and fuel submissions
+  need connectivity, and conflicts on sync are dropped with a user-visible notice.
 - Demo passwords (`Demo123!`) and the default JWT secret are for local evaluation only.
 - Windows note: stop the API before `npx prisma generate` if Prisma reports locked files.

@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import {
   BarChart3,
   Bell,
+  Bot,
+  BrainCircuit,
   Car,
   ClipboardList,
   Command,
@@ -16,6 +18,7 @@ import {
   Satellite,
   Search,
   ShieldCheck,
+  Smartphone,
   Sun,
   Truck,
   UserCircle,
@@ -25,6 +28,7 @@ import {
 import { can, isStaff } from './permissions.js';
 
 export const NAV_ITEMS = [
+  { to: '/driver', label: 'Tugas Saya', keywords: 'driver pwa penugasan offline antrean', icon: Smartphone, visible: (role) => role === 'DRIVER' },
   { to: '/', label: 'Dashboard', keywords: 'home ringkasan kpi', icon: LayoutDashboard, end: true, visible: () => true },
   { to: '/bookings', label: 'Booking', keywords: 'permintaan transport approval', icon: ClipboardList, visible: () => true },
   { to: '/trips', label: 'Perjalanan', keywords: 'trip driver status', icon: RouteIcon, visible: (role) => isStaff(role) || role === 'DRIVER' },
@@ -35,7 +39,9 @@ export const NAV_ITEMS = [
   { to: '/routes', label: 'Rute', keywords: 'jalur tujuan asal', icon: MapPin, visible: (role) => can(role, 'routes:read') },
   { to: '/maintenance', label: 'Maintenance', keywords: 'servis perawatan bengkel', icon: Wrench, visible: (role) => can(role, 'maintenance:read') },
   { to: '/reports', label: 'Laporan', keywords: 'ekspor csv excel analitik', icon: BarChart3, visible: (role) => can(role, 'reports:read') },
+  { to: '/intelligence', label: 'Fleet Intelligence', keywords: 'kpi bi dashboard kualitas data', icon: BrainCircuit, visible: (role) => can(role, 'intelligence:read') },
   { to: '/audit', label: 'Audit Log', keywords: 'jejak aktivitas', icon: FileText, visible: (role) => can(role, 'audit:read') },
+  { to: '/assistant', label: 'Fleet Assistant', keywords: 'tanya jawab kpi status operasional', icon: Bot, visible: (role) => can(role, 'assistant:ask') },
   { to: '/users', label: 'Pengguna', keywords: 'user akun hak akses', icon: ShieldCheck, visible: (role) => can(role, 'users:manage') },
   { to: '/notifications', label: 'Notifikasi', keywords: 'pesan peringatan', icon: Bell, visible: () => true },
   { to: '/profile', label: 'Profil', keywords: 'akun password preferensi', icon: UserCircle, visible: () => true },

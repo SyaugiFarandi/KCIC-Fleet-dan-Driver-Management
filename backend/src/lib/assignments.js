@@ -4,6 +4,16 @@ import { ACTIVE_TRIP_STATUSES, usageWindow, windowsOverlap } from './workflow.js
 
 const db = (tx) => tx ?? prisma;
 
+export const BLOCKING_DEFECT_STATUSES = ['OPEN', 'IN_REPAIR'];
+
+async function blockedVehicleIds(client) {
+  const criticalDefects = await client.defect.findMany({
+    where: { status: { in: BLOCKING_DEFECT_STATUSES }, severity: 'CRITICAL' },
+    select: { vehicleId: true },
+  });
+  return new Set(criticalDefects.map((defect) => defect.vehicleId));
+}
+
 async function overlappingTrips(tx, booking, excludeTripId) {
   const client = db(tx);
   const trips = await client.trip.findMany({
@@ -28,6 +38,7 @@ export async function availabilityFor(tx, booking, excludeTripId) {
     select: { vehicleId: true },
   });
   const maintenanceIds = new Set(activeMaintenance.map((m) => m.vehicleId));
+  const blockedIds = await blockedVehicleIds(client);
 
   const [vehicles, drivers] = await Promise.all([
     client.vehicle.findMany({
@@ -47,7 +58,7 @@ export async function availabilityFor(tx, booking, excludeTripId) {
       from: new Date(window.start).toISOString(),
       to: new Date(window.end).toISOString(),
     },
-    vehicles: vehicles.filter((v) => !busyVehicleIds.has(v.id) && !maintenanceIds.has(v.id)),
+    vehicles: vehicles.filter((v) => !busyVehicleIds.has(v.id) && !maintenanceIds.has(v.id) && !blockedIds.has(v.id)),
     drivers: drivers.filter(
       (d) => !busyDriverIds.has(d.id) && new Date(d.licenseExpiry).getTime() >= window.start
     ),
@@ -76,6 +87,13 @@ export async function assertAssignable(tx, booking, { vehicleId, driverId, exclu
     where: { vehicleId, status: 'IN_PROGRESS' },
   });
   if (activeMaintenance) throw new HttpError(409, 'Kendaraan sedang dalam perawatan aktif');
+
+  const criticalDefect = await client.defect.findFirst({
+    where: { vehicleId, status: { in: BLOCKING_DEFECT_STATUSES }, severity: 'CRITICAL' },
+  });
+  if (criticalDefect) {
+    throw new HttpError(409, `Kendaraan diblokir karena defect kritis "${criticalDefect.title}" belum terselesaikan`);
+  }
 
   const { trips } = await overlappingTrips(tx, booking, excludeTripId);
   const vehicleConflict = trips.find((t) => t.vehicleId === vehicleId);

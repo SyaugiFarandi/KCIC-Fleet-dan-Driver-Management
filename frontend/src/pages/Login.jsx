@@ -25,8 +25,8 @@ export default function Login() {
     setBusy(true);
     setError(null);
     try {
-      await login(form.email.trim(), form.password);
-      navigate('/', { replace: true });
+      const loggedIn = await login(form.email.trim(), form.password);
+      navigate(loggedIn.role === 'DRIVER' ? '/driver' : '/', { replace: true });
     } catch (err) {
       setError(err);
     } finally {

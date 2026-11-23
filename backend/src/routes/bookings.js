@@ -224,7 +224,9 @@ router.patch('/:id', asyncRoute(async (req, res) => {
   const booking = await prisma.booking.findUnique({ where: { id: req.params.id }, include: { trip: true } });
   if (!booking) throw new HttpError(404, 'Booking tidak ditemukan');
 
-  const isElevated = ['SYSTEM_ADMIN', 'FLEET_MANAGER'].includes(req.user.role);
+  const routeOnlyChange = data.routeId !== undefined && Object.keys(data).every((key) => key === 'routeId');
+  const isElevated =
+    ['SYSTEM_ADMIN', 'FLEET_MANAGER'].includes(req.user.role) || (routeOnlyChange && can(req.user.role, 'routes:optimize'));
   const isOwner = booking.requesterId === req.user.id;
   if (!(isElevated && ['PENDING', 'APPROVED'].includes(booking.status)) && !(isOwner && booking.status === 'PENDING')) {
     throw new HttpError(403, 'Booking hanya dapat diubah saat masih menunggu persetujuan');

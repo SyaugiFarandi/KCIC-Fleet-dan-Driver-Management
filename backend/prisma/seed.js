@@ -96,6 +96,121 @@ const routes = [
 
 const routeById = Object.fromEntries(routes.map(([id, code, origin, destination, estimatedMinutes, distanceKm]) => [id, { code, origin, destination, estimatedMinutes, distanceKm }]));
 
+const routeRestrictions = {
+  rte_01: { maxHeightM: 2.3, maxWeightTon: 3.5, notes: 'Parkir basement kantor pusat, tinggi maksimum 2,3 m (demo)' },
+  rte_11: { maxHeightM: 2.5, notes: 'Akses bandara hanya untuk kendaraan dengan stiker resmi (demo)' },
+  rte_10: { maxWeightTon: 5, notes: 'Rute tol jarak jauh, utamakan kendaraan dengan BBM memadai (demo)' },
+};
+
+const routePoints = [
+  ['rtp_01_1', 'rte_01', 'Lobby A Stasiun Halim', 'PICKUP', -6.2436, 106.8852, 1],
+  ['rtp_01_2', 'rte_01', 'Tol Jakarta-Cikampek KM 2', 'WAYPOINT', -6.2417, 106.8691, 2],
+  ['rtp_01_3', 'rte_01', 'Kantor Pusat KCIC', 'DROP_OFF', -6.2231, 106.8065, 3],
+  ['rtp_02_1', 'rte_02', 'Lobby A Stasiun Halim', 'PICKUP', -6.2436, 106.8852, 1],
+  ['rtp_02_2', 'rte_02', 'Rest Area KM 19', 'WAYPOINT', -6.2884, 107.0824, 2],
+  ['rtp_02_3', 'rte_02', 'Stasiun Karawang', 'DROP_OFF', -6.3529, 107.2985, 3],
+  ['rtp_10_1', 'rte_10', 'Stasiun Tegalluar', 'PICKUP', -6.9477, 107.6268, 1],
+  ['rtp_10_2', 'rte_10', 'Rest Area KM 97', 'WAYPOINT', -6.5611, 107.4020, 2],
+  ['rtp_10_3', 'rte_10', 'Terminal 3 Soekarno-Hatta', 'DROP_OFF', -6.1256, 106.6559, 3],
+  ['rtp_11_1', 'rte_11', 'Lobby A Stasiun Halim', 'PICKUP', -6.2436, 106.8852, 1],
+  ['rtp_11_2', 'rte_11', 'Tol Sedyatmo KM 29', 'WAYPOINT', -6.1621, 106.7001, 2],
+  ['rtp_11_3', 'rte_11', 'Terminal 3 Soekarno-Hatta', 'DROP_OFF', -6.1256, 106.6559, 3],
+];
+
+const inspectionTemplates = [
+  {
+    id: 'ins_tpl_pre',
+    name: 'DEMO Pre-Trip Standar',
+    description: 'Pemeriksaan sebelum perjalanan untuk armada MPV/Minibus (data demo).',
+    category: 'PRE_TRIP',
+    items: [
+      { key: 'documents', label: 'STNK dan dokumen kendaraan tersedia', critical: true },
+      { key: 'tires', label: 'Tekanan dan kondisi ban', critical: true },
+      { key: 'lights', label: 'Lampu utama, rem, dan sein', critical: true },
+      { key: 'fluids', label: 'Oli, air radiator, dan wiper washer', critical: false },
+      { key: 'brakes', label: 'Respon rem dan rem tangan', critical: true },
+      { key: 'safety', label: 'Segitiga, dongkrak, dan APAR', critical: false },
+      { key: 'cleanliness', label: 'Kebersihan kabin dan bagasi', critical: false },
+    ],
+  },
+  {
+    id: 'ins_tpl_release',
+    name: 'DEMO Release Inspeksi Kendaraan',
+    description: 'Pemeriksaan kelayakan kendaraan setelah perbaikan sebelum kembali beroperasi (data demo).',
+    category: 'RELEASE',
+    items: [
+      { key: 'work_verified', label: 'Pekerjaan perbaikan diverifikasi oleh mekanik', critical: true },
+      { key: 'functional_test', label: 'Uji fungsi komponen yang diperbaiki', critical: true },
+      { key: 'brakes', label: 'Uji rem dan sistem kemudi', critical: true },
+      { key: 'fluids', label: 'Level oli dan cairan normal, tidak ada kebocoran', critical: false },
+      { key: 'road_test', label: 'Uji jalan singkat (minimum 2 km)', critical: false },
+    ],
+  },
+];
+
+const inspectionSpecs = [
+  ['ins_demo_01', 'vh_17', 'dr_04', null, 'ins_tpl_pre', 'PRE_TRIP', 'FAILED', 26840, -5, ['tires', 'brakes']],
+  ['ins_demo_02', 'vh_09', 'dr_08', 'trip_demo_21', 'ins_tpl_pre', 'PRE_TRIP', 'PASSED', 38420, -49, []],
+  ['ins_demo_03', 'vh_10', 'dr_09', 'trip_demo_22', 'ins_tpl_pre', 'POST_TRIP', 'PASSED', 41210, -95, []],
+  ['ins_demo_04', 'vh_18', 'dr_10', null, 'ins_tpl_release', 'RELEASE', 'DEFECTS', 33155, -30, ['functional_test']],
+  ['ins_demo_05', 'vh_11', 'dr_10', null, 'ins_tpl_pre', 'PRE_TRIP', 'DRAFT', 29800, -1, ['fluids']],
+];
+
+const defectSpecs = [
+  ['dft_demo_01', 'vh_17', 'ins_demo_01', 'mnt_01', 'Kebocoran minyak rem roda depan', 'Terdapat rembesan pada selang rem kiri depan, kendaraan tidak layak jalan.', 'CRITICAL', 'IN_REPAIR', 'usr_maint'],
+  ['dft_demo_02', 'vh_18', 'ins_demo_04', 'mnt_02', 'Kompresor AC tidak berfungsi', 'Uji fungsi AC gagal, suhu kabin tidak turun. Menunggu penggantian kompresor.', 'HIGH', 'IN_REPAIR', 'usr_maint'],
+  ['dft_demo_03', 'vh_11', null, null, 'Level cairan wiper rendah', 'Ditemukan saat inspeksi pra-trip, perlu pengisian ulang.', 'LOW', 'OPEN', 'usr_fleetofficer'],
+  ['dft_demo_04', 'vh_09', null, 'mnt_04', 'Keausan kampas rem belakang', 'Ketebalan kampas 3 mm, dijadwalkan penggantian pada servis berkala.', 'MEDIUM', 'OPEN', 'usr_fleetofficer'],
+  ['dft_demo_05', 'vh_13', null, 'mnt_06', 'Speedometer tidak akurat', 'Selisih pembacaan ±7%, sudah dikalibrasi ulang.', 'MEDIUM', 'RESOLVED', 'usr_fleetofficer'],
+];
+
+const fuelPrices = [
+  ['BIOSOLAR', 6800, 'Harga referensi demo — bukan harga resmi'],
+  ['DEXLITE', 15200, 'Harga referensi demo — bukan harga resmi'],
+  ['PERTAMAX', 13500, 'Harga referensi demo — bukan harga resmi'],
+];
+
+const fuelTransactions = [
+  ['fuel_demo_01', 'vh_01', 'dr_01', 'trip_demo_13', 'DEXLITE', -0.6, 38.5, 15200, 585200, 24910, 'FUEL_CARD', 'SPBU DEMO 31.101', 'NONE'],
+  ['fuel_demo_02', 'vh_02', 'dr_02', 'trip_demo_14', 'BIOSOLAR', -0.7, 62.0, 6800, 421600, 67220, 'VENDOR_CARD', 'SPBU DEMO 31.102', 'NONE'],
+  ['fuel_demo_03', 'vh_09', 'dr_08', 'trip_demo_21', 'DEXLITE', -47, 42.0, 15200, 638400, 37900, 'FUEL_CARD', 'SPBU DEMO 31.201', 'NONE'],
+  ['fuel_demo_04', 'vh_10', 'dr_09', 'trip_demo_22', 'BIOSOLAR', -95, 55.0, 6800, 374000, 40680, 'FUEL_CARD', 'SPBU DEMO 31.202', 'NONE'],
+  ['fuel_demo_05', 'vh_11', 'dr_10', 'trip_demo_23', 'DEXLITE', -119, 40.5, 15200, 615600, 29250, 'TRANSFER', 'SPBU DEMO 31.203', 'NONE'],
+  ['fuel_demo_06', 'vh_12', 'dr_11', 'trip_demo_24', 'BIOSOLAR', -167, 58.0, 6800, 394400, 58110, 'VENDOR_CARD', 'SPBU DEMO 31.204', 'NONE'],
+  ['fuel_demo_07', 'vh_13', 'dr_12', 'trip_demo_25', 'DEXLITE', -215, 44.0, 15200, 668800, 31740, 'FUEL_CARD', 'SPBU DEMO 31.205', 'NONE'],
+  ['fuel_demo_08', 'vh_03', 'dr_03', 'trip_demo_15', 'BIOSOLAR', -2, 96.0, 6800, 652800, 31240, 'CASH', 'SPBU DEMO 31.301', 'FLAGGED'],
+  ['fuel_demo_09', 'vh_04', 'dr_04', 'trip_demo_16', 'DEXLITE', -26, 35.0, 18500, 647500, 27990, 'CASH', 'SPBU DEMO 31.302', 'FLAGGED'],
+  ['fuel_demo_10', 'vh_05', 'dr_05', 'trip_demo_17', 'DEXLITE', -70, 39.0, 15200, 592800, 46300, 'FUEL_CARD', 'SPBU DEMO 31.303', 'APPROVED'],
+];
+
+// Historical odometer samples (DEMO) so usage-based maintenance prediction has
+// at least two points per vehicle; values are derived, not real operational data.
+const fuelHistory = fuelTransactions.flatMap(
+  ([, vehicleId, , , fuelType, , , pricePerLiter, , odometerKm, , station]) => [
+    [`fuel_hist_${vehicleId}_a`, vehicleId, null, null, fuelType, -110 * 24, 35, pricePerLiter, 35 * pricePerLiter, Math.max(0, odometerKm - 5000), 'FUEL_CARD', station, 'NONE'],
+    [`fuel_hist_${vehicleId}_b`, vehicleId, null, null, fuelType, -55 * 24, 35, pricePerLiter, 35 * pricePerLiter, Math.max(0, odometerKm - 2500), 'FUEL_CARD', station, 'NONE'],
+  ]
+);
+const allFuelTransactions = [...fuelTransactions, ...fuelHistory];
+
+const vendorContracts = [
+  ['ctr_demo_01', 'vnd_01', 'DEMO-CTR-2026-01', 'Penyediaan 2 unit MPV beserta driver untuk operasional harian', -180, 25, 42000000, 'ACTIVE'],
+  ['ctr_demo_02', 'vnd_02', 'DEMO-CTR-2026-02', 'Penyediaan 2 unit SUV/MPV dan driver pendukung', -90, 400, 38500000, 'ACTIVE'],
+  ['ctr_demo_03', 'vnd_03', 'DEMO-CTR-2025-03', 'Penyediaan 1 unit MPV dan driver untuk rute Bandung', -400, -20, 31000000, 'EXPIRED'],
+];
+
+const slaDefinitions = [
+  ['ctr_demo_01', 'ON_TIME_DEPARTURE', 95, '%'],
+  ['ctr_demo_01', 'TRIP_COMPLETION', 98, '%'],
+  ['ctr_demo_01', 'AVAILABILITY', 90, '%'],
+  ['ctr_demo_01', 'RESPONSE_TIME', 30, 'menit'],
+  ['ctr_demo_02', 'ON_TIME_DEPARTURE', 93, '%'],
+  ['ctr_demo_02', 'TRIP_COMPLETION', 97, '%'],
+  ['ctr_demo_02', 'AVAILABILITY', 88, '%'],
+  ['ctr_demo_03', 'ON_TIME_DEPARTURE', 90, '%'],
+  ['ctr_demo_03', 'TRIP_COMPLETION', 95, '%'],
+];
+
 const purposes = [
   'Rapat koordinasi operasional',
   'Penjemputan tamu manajemen',
@@ -198,9 +313,12 @@ async function main() {
   for (const [index, [id, plateNumber, brand, model, category, capacity, ownership, vendorId, status]] of vehicles.entries()) {
     const stnkExpiry = days(index % 3 === 0 ? 9 + index : 25 + index * 40);
     const insuranceExpiry = index % 7 === 0 ? days(-4) : index % 7 === 1 ? days(12 + index) : days(120 + index * 20);
+    const odometerKm = 25000 + index * 2400;
+    const serviceDaysAgo = index === 2 ? 200 : index === 4 ? 170 : 20 + index * 6;
+    const lastServiceAt = days(-serviceDaysAgo);
     await prisma.vehicle.upsert({
       where: { id },
-      update: { stnkExpiry, insuranceExpiry },
+      update: { stnkExpiry, insuranceExpiry, odometerKm, lastServiceAt },
       create: {
         id,
         plateNumber,
@@ -213,7 +331,10 @@ async function main() {
         status,
         year: 2023,
         color: 'Demo',
-        odometerKm: 25000,
+        odometerKm,
+        lastServiceAt,
+        serviceIntervalKm: 10000,
+        serviceIntervalDays: 180,
         stnkExpiry,
         insuranceExpiry,
         notes: 'Data kendaraan demo',
@@ -242,7 +363,30 @@ async function main() {
   }
 
   for (const [id, code, origin, destination, estimatedMinutes, distanceKm] of routes) {
-    await prisma.route.upsert({ where: { id }, update: {}, create: { id, code, origin, destination, estimatedMinutes, distanceKm, active: true } });
+    await prisma.route.upsert({
+      where: { id },
+      update: {
+        ...(routeRestrictions[id] ? { restrictions: routeRestrictions[id] } : {}),
+      },
+      create: {
+        id,
+        code,
+        origin,
+        destination,
+        estimatedMinutes,
+        distanceKm,
+        restrictions: routeRestrictions[id] || null,
+        active: true,
+      },
+    });
+  }
+
+  for (const [id, routeId, name, kind, lat, lng, sequence] of routePoints) {
+    await prisma.routePoint.upsert({
+      where: { id },
+      update: {},
+      create: { id, routeId, name, kind, lat, lng, sequence, notes: 'Titik rute demo' },
+    });
   }
 
   for (const [id, code, requesterId, routeId, passengerCount, departureAt, returnAt, status] of bookingSpecs) {
@@ -368,6 +512,14 @@ async function main() {
     }
   }
 
+  const maintenanceMeta = {
+    mnt_01: { kind: 'PREVENTIVE', priority: 'HIGH' },
+    mnt_02: { kind: 'CORRECTIVE', priority: 'HIGH', requestedById: 'usr_driver' },
+    mnt_03: { kind: 'PREVENTIVE', priority: 'NORMAL' },
+    mnt_04: { kind: 'PREVENTIVE', priority: 'NORMAL' },
+    mnt_05: { kind: 'CORRECTIVE', priority: 'NORMAL' },
+    mnt_06: { kind: 'CORRECTIVE', priority: 'LOW' },
+  };
   for (const [id, vehicleId, title, description, scheduledAt, status, cost, startedOffset, completedOffset] of maintenanceItems) {
     await prisma.maintenance.upsert({
       where: { id },
@@ -384,9 +536,192 @@ async function main() {
         completedAt: completedOffset !== null ? hours(completedOffset) : null,
         createdById: 'usr_maint',
         createdAt: hours(-260),
+        ...maintenanceMeta[id],
       },
     });
   }
+
+  // --- DEMO digital inspection, defects, fuel and vendor SLA data ---
+  for (const template of inspectionTemplates) {
+    await prisma.inspectionTemplate.upsert({
+      where: { id: template.id },
+      update: {},
+      create: template,
+    });
+  }
+
+  const templateById = Object.fromEntries(inspectionTemplates.map((template) => [template.id, template]));
+  for (const [id, vehicleId, driverId, tripId, templateId, type, status, odometerKm, offset, failedKeys] of inspectionSpecs) {
+    const template = templateById[templateId];
+    const isDraft = status === 'DRAFT';
+    const startedById = driverId === 'dr_01' ? 'usr_driver' : 'usr_maint';
+    await prisma.inspection.upsert({
+      where: { id },
+      update: {},
+      create: {
+        id,
+        vehicleId,
+        driverId,
+        tripId,
+        templateId,
+        type,
+        status,
+        odometerKm,
+        notes: 'Inspeksi demo',
+        startedById,
+        completedById: isDraft ? null : startedById,
+        completedAt: isDraft ? null : hours(offset + 0.5),
+        createdAt: hours(offset),
+        updatedAt: hours(offset + 0.5),
+      },
+    });
+    for (const item of template.items) {
+      const failed = failedKeys.includes(item.key);
+      await prisma.inspectionItem.upsert({
+        where: { inspectionId_key: { inspectionId: id, key: item.key } },
+        update: {},
+        create: {
+          inspectionId: id,
+          key: item.key,
+          label: item.label,
+          critical: item.critical,
+          checked: !failed,
+          note: failed ? 'Tidak lolos pemeriksaan demo — lihat defect terkait' : '',
+        },
+      });
+    }
+  }
+
+  for (const [id, vehicleId, inspectionId, maintenanceId, title, description, severity, status, reportedById] of defectSpecs) {
+    await prisma.defect.upsert({
+      where: { id },
+      update: {},
+      create: {
+        id,
+        vehicleId,
+        inspectionId,
+        maintenanceId,
+        title,
+        description,
+        severity,
+        status,
+        reportedById,
+        reportedAt: hours(-40),
+        resolvedAt: status === 'RESOLVED' ? hours(-1) : null,
+        resolutionNote: status === 'RESOLVED' ? 'Kalibrasi ulang selesai, hasil uji sesuai toleransi demo.' : null,
+      },
+    });
+  }
+
+  for (const [fuelType, pricePerLiter, notes] of fuelPrices) {
+    await prisma.fuelPrice.upsert({
+      where: { fuelType },
+      update: {},
+      create: { fuelType, pricePerLiter, effectiveFrom: days(-30), notes },
+    });
+  }
+
+  for (const [id, vehicleId, driverId, tripId, fuelType, offset, liters, pricePerLiter, totalCost, odometerKm, paymentMethod, station, anomalyStatus] of allFuelTransactions) {
+    await prisma.fuelTransaction.upsert({
+      where: { id },
+      update: {},
+      create: {
+        id,
+        vehicleId,
+        driverId,
+        tripId,
+        fuelType,
+        transactionAt: hours(offset),
+        liters,
+        pricePerLiter,
+        totalCost,
+        odometerKm,
+        paymentMethod,
+        station,
+        anomalyStatus,
+        anomalyNote:
+          anomalyStatus === 'FLAGGED'
+            ? fuelType === 'DEXLITE'
+              ? 'Harga per liter di atas referensi demo lebih dari 15%'
+              : 'Volume pengisian melebihi kapasitas tangki kendaraan'
+            : null,
+        reviewedById: anomalyStatus === 'APPROVED' ? 'usr_fleet' : null,
+        reviewedAt: anomalyStatus === 'APPROVED' ? hours(offset + 2) : null,
+        createdById: 'usr_fleetofficer',
+        createdAt: hours(offset),
+      },
+    });
+  }
+
+  for (const [id, vendorId, contractNumber, serviceScope, startOffset, endOffset, monthlyValue, status] of vendorContracts) {
+    await prisma.vendorContract.upsert({
+      where: { id },
+      update: {},
+      create: {
+        id,
+        vendorId,
+        contractNumber,
+        serviceScope,
+        startDate: days(startOffset),
+        endDate: days(endOffset),
+        monthlyValue,
+        status,
+        notes: 'Kontrak demo — nilai dan target SLA bukan data kontrak resmi KCIC',
+      },
+    });
+  }
+
+  for (const [contractId, metric, target, unit] of slaDefinitions) {
+    await prisma.slaDefinition.upsert({
+      where: { contractId_metric: { contractId, metric } },
+      update: {},
+      create: { contractId, metric, target, unit, notes: 'Target SLA demo sesuai lampiran kontrak fiktif' },
+    });
+  }
+  await prisma.booking.upsert({
+    where: { id: 'bkg_demo_emg_01' },
+    update: {},
+    create: {
+      id: 'bkg_demo_emg_01',
+      code: 'DEMO-BKG-EMG-01',
+      requesterId: 'usr_ops',
+      department: 'Operations',
+      purpose: 'Mobilisasi tim tanggap darurat ke lokasi insiden operasional',
+      passengerCount: 4,
+      origin: 'Kantor Pusat KCIC',
+      destination: 'Stasiun Halim',
+      routeId: 'rte_01',
+      departureAt: hours(3),
+      returnAt: hours(4.5),
+      priority: 'EMERGENCY',
+      emergencyReason: 'Skenario darurat demo: gangguan operasional membutuhkan mobilisasi cepat',
+      status: 'APPROVED',
+      decidedById: 'usr_ops',
+      decidedAt: hours(-0.2),
+      createdAt: hours(-0.5),
+    },
+  });
+  await prisma.booking.upsert({
+    where: { id: 'bkg_demo_emg_02' },
+    update: {},
+    create: {
+      id: 'bkg_demo_emg_02',
+      code: 'DEMO-BKG-EMG-02',
+      requesterId: 'usr_employee',
+      department: 'Crew Operations',
+      purpose: 'Evakuasi kru yang terkendala di stasiun',
+      passengerCount: 6,
+      origin: 'Stasiun Padalarang',
+      destination: 'Stasiun Halim',
+      routeId: 'rte_04',
+      departureAt: hours(1.5),
+      returnAt: hours(3),
+      priority: 'EMERGENCY',
+      emergencyReason: 'Skenario darurat demo: kru membutuhkan transportasi segera karena gangguan layanan',
+      status: 'PENDING',
+      createdAt: hours(-0.4),
+    },
+  });
 
   // --- DEMO GPS telemetry (simulator only, never presented as real GPS) ---
   for (const fence of GEOFENCE_SEED) {
@@ -582,6 +917,14 @@ async function main() {
     geofences: await prisma.geofence.count(),
     vehicleLocations: await prisma.vehicleLocation.count(),
     gpsEvents: await prisma.gpsEvent.count(),
+    inspectionTemplates: await prisma.inspectionTemplate.count(),
+    inspections: await prisma.inspection.count(),
+    defects: await prisma.defect.count(),
+    fuelTransactions: await prisma.fuelTransaction.count(),
+    fuelPrices: await prisma.fuelPrice.count(),
+    vendorContracts: await prisma.vendorContract.count(),
+    slaDefinitions: await prisma.slaDefinition.count(),
+    routePoints: await prisma.routePoint.count(),
   };
   console.log('[seed] Demo data ready:', counts);
   console.log(`[seed] Login accounts use password: ${PASSWORD}`);
